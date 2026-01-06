@@ -17,7 +17,12 @@ import {
   ArrowRight,
   Layers,
   Box,
-  Share2
+  Share2,
+  Workflow,
+  Table as TableIcon,
+  Server,
+  Building2,
+  MoreHorizontal
 } from "lucide-react";
 
 // Types for our mock data
@@ -39,9 +44,29 @@ interface BusinessObject {
   attributes: string[];
 }
 
+interface Scenario {
+  id: string;
+  name: string;
+  description: string;
+  involvedObjects: string[]; // Object IDs
+  steps: { order: number; action: string; objectId?: string }[];
+}
+
+interface SystemMapping {
+  id: string;
+  objectId: string;
+  objectName: string;
+  system: string;
+  physicalTable: string;
+  ownerDepartment: string;
+  status: "mapped" | "conflict" | "pending";
+  lastSync: string;
+}
+
 const App = () => {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "l0" | "l1" | "l2">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "l0" | "l1" | "l2" | "l3">("dashboard");
   const [showAIPanel, setShowAIPanel] = useState(true);
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
 
   // Mock Data for L0
   const [facts, setFacts] = useState<Fact[]>([
@@ -56,6 +81,42 @@ const App = () => {
     { id: "BO01", name: "客户订单", type: "EVENT", description: "记录客户的交易行为核心单据", status: "stable", attributes: ["订单号", "下单时间", "总金额"] },
     { id: "BO02", name: "商品 SKU", type: "ENTITY", description: "最小库存单位", status: "stable", attributes: ["SKU编码", "名称", "规格"] },
     { id: "BO03", name: "会员账户快照", type: "SNAPSHOT", description: "每日日终会员资产状态", status: "draft", attributes: ["余额", "积分", "快照日期"] },
+    { id: "BO04", name: "支付流水", type: "EVENT", description: "第三方支付系统的资金变动记录", status: "draft", attributes: ["流水号", "金额", "渠道"] },
+  ]);
+
+  // Mock Data for L2
+  const [scenarios, setScenarios] = useState<Scenario[]>([
+    { 
+      id: "S001", 
+      name: "C端下单全流程", 
+      description: "用户从浏览商品到完成下单支付的全链路语义模型", 
+      involvedObjects: ["BO01", "BO02", "BO04"],
+      steps: [
+        { order: 1, action: "用户选择商品", objectId: "BO02" },
+        { order: 2, action: "创建待支付订单", objectId: "BO01" },
+        { order: 3, action: "完成支付生成流水", objectId: "BO04" },
+        { order: 4, action: "更新订单状态", objectId: "BO01" }
+      ]
+    },
+    { 
+      id: "S002", 
+      name: "会员积分结算", 
+      description: "日终根据交易情况计算会员积分变动", 
+      involvedObjects: ["BO03", "BO01"],
+      steps: [
+        { order: 1, action: "汇总当日订单", objectId: "BO01" },
+        { order: 2, action: "计算积分增量", objectId: "BO03" },
+        { order: 3, action: "生成账户快照", objectId: "BO03" }
+      ]
+    }
+  ]);
+
+  // Mock Data for L3
+  const [mappings, setMappings] = useState<SystemMapping[]>([
+    { id: "M001", objectId: "BO01", objectName: "客户订单", system: "交易中心 (Trade)", physicalTable: "t_trade_order_master", ownerDepartment: "交易中台部", status: "mapped", lastSync: "2023-10-24" },
+    { id: "M002", objectId: "BO02", objectName: "商品 SKU", system: "商品中心 (Item)", physicalTable: "t_item_sku_base", ownerDepartment: "供应链产研", status: "mapped", lastSync: "2023-10-23" },
+    { id: "M003", objectId: "BO03", objectName: "会员账户快照", system: "会员系统 (Member)", physicalTable: "t_mb_asset_snapshot_daily", ownerDepartment: "用户增长部", status: "conflict", lastSync: "2023-10-20" },
+    { id: "M004", objectId: "BO04", objectName: "支付流水", system: "支付网关 (Pay)", physicalTable: "未关联", ownerDepartment: "待定", status: "pending", lastSync: "-" },
   ]);
 
   // Sidebar Component
@@ -95,9 +156,8 @@ const App = () => {
         <NavItem 
           icon={<Share2 size={20} />} 
           label="L3 系统与部门映射" 
-          active={false} 
-          onClick={() => {}} 
-          badge="即将上线"
+          active={activeTab === "l3"} 
+          onClick={() => setActiveTab("l3")} 
         />
       </nav>
 
@@ -169,19 +229,19 @@ const App = () => {
           
           <div className="grid grid-cols-4 gap-4 relative z-10">
             {[
-              { code: "L0", title: "业务事实梳理", desc: "主体/行为/状态事实", color: "blue" },
-              { code: "L1", title: "业务对象建模", desc: "Entity/Event/Snapshot", color: "indigo" },
-              { code: "L2", title: "场景语义建模", desc: "业务场景语义对齐", color: "purple" },
-              { code: "L3", title: "系统映射", desc: "落地到物理表与部门", color: "slate" },
+              { code: "L0", title: "业务事实梳理", desc: "主体/行为/状态事实", color: "blue", action: () => setActiveTab("l0") },
+              { code: "L1", title: "业务对象建模", desc: "Entity/Event/Snapshot", color: "indigo", action: () => setActiveTab("l1") },
+              { code: "L2", title: "场景语义建模", desc: "业务场景语义对齐", color: "purple", action: () => setActiveTab("l2") },
+              { code: "L3", title: "系统映射", desc: "落地到物理表与部门", color: "slate", action: () => setActiveTab("l3") },
             ].map((step, idx) => (
-              <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer group">
+              <div onClick={step.action} key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer group hover:border-blue-300">
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold mb-3 bg-${step.color}-600`}>
                   {step.code}
                 </div>
                 <h3 className="font-bold text-slate-800">{step.title}</h3>
                 <p className="text-xs text-slate-500 mt-1">{step.desc}</p>
                 {idx < 3 && (
-                  <div className="absolute right-0 top-1/2 -mr-6 -mt-3 text-slate-300">
+                  <div className="absolute right-0 top-1/2 -mr-6 -mt-3 text-slate-300 hidden md:block">
                     <ArrowRight size={24} />
                   </div>
                 )}
@@ -417,9 +477,214 @@ const App = () => {
     </div>
   );
 
+  // L2 View
+  const L2View = () => {
+    const activeScenario = scenarios.find(s => s.id === selectedScenarioId) || scenarios[0];
+
+    return (
+      <div className="h-full flex flex-col p-6">
+        <header className="flex justify-between items-center mb-6">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900 flex items-center">
+              <span className="bg-purple-100 text-purple-700 text-sm font-bold px-2 py-1 rounded mr-3">L2</span>
+              场景语义建模
+            </h2>
+            <p className="text-sm text-slate-500 mt-1">将 L1 对象按业务场景进行编排和对齐，形成完整的业务语境。</p>
+          </div>
+          <button className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center shadow-sm">
+            <Workflow size={16} className="mr-2" />
+            新建场景
+          </button>
+        </header>
+
+        <div className="flex flex-1 gap-6 overflow-hidden">
+           {/* Scenario List */}
+           <div className="w-72 flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden flex-shrink-0">
+             <div className="p-3 border-b border-slate-100 bg-slate-50 font-medium text-sm text-slate-700">场景列表</div>
+             <div className="overflow-y-auto flex-1">
+               {scenarios.map(s => (
+                 <div 
+                   key={s.id} 
+                   onClick={() => setSelectedScenarioId(s.id)}
+                   className={`p-4 border-b border-slate-50 cursor-pointer transition-colors ${
+                     activeScenario.id === s.id ? 'bg-purple-50 border-purple-100' : 'hover:bg-slate-50'
+                   }`}
+                 >
+                   <div className="font-semibold text-slate-800 text-sm mb-1">{s.name}</div>
+                   <div className="text-xs text-slate-400 truncate">{s.description}</div>
+                 </div>
+               ))}
+             </div>
+           </div>
+
+           {/* Canvas/Detail Area */}
+           <div className="flex-1 bg-white border border-slate-200 rounded-xl flex flex-col overflow-hidden">
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div>
+                   <h3 className="font-bold text-slate-800">{activeScenario.name}</h3>
+                   <p className="text-xs text-slate-500">{activeScenario.description}</p>
+                </div>
+                <div className="flex items-center space-x-2">
+                   <span className="text-xs bg-white border border-slate-200 px-2 py-1 rounded text-slate-600">
+                     关联对象: {activeScenario.involvedObjects.length}
+                   </span>
+                </div>
+              </div>
+              
+              <div className="flex-1 p-8 bg-slate-50 overflow-y-auto">
+                {/* Visual Flow Representation */}
+                <div className="max-w-3xl mx-auto">
+                   <div className="space-y-8 relative">
+                     {/* Connecting Line */}
+                     <div className="absolute left-6 top-4 bottom-4 w-0.5 bg-slate-200 z-0"></div>
+
+                     {activeScenario.steps.map((step, idx) => {
+                       const relatedObj = objects.find(o => o.id === step.objectId);
+                       return (
+                         <div key={idx} className="relative z-10 flex items-start group">
+                            <div className="w-12 h-12 rounded-full bg-white border-4 border-purple-50 flex items-center justify-center font-bold text-purple-600 shadow-sm mr-4 flex-shrink-0">
+                              {step.order}
+                            </div>
+                            <div className="flex-1 bg-white p-4 rounded-xl border border-slate-200 shadow-sm group-hover:border-purple-200 group-hover:shadow-md transition-all">
+                               <div className="flex justify-between items-start mb-2">
+                                  <span className="font-medium text-slate-800">{step.action}</span>
+                                  {relatedObj && (
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                                       relatedObj.type === 'EVENT' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'
+                                    }`}>
+                                      {relatedObj.id}
+                                    </span>
+                                  )}
+                               </div>
+                               {relatedObj ? (
+                                 <div className="text-sm text-slate-500 flex items-center bg-slate-50 p-2 rounded">
+                                    <Box size={14} className="mr-2 text-slate-400" />
+                                    操作对象：<span className="font-medium text-slate-700 ml-1">{relatedObj.name}</span>
+                                 </div>
+                               ) : (
+                                 <div className="text-sm text-slate-400 italic">未关联具体 L1 对象</div>
+                               )}
+                            </div>
+                         </div>
+                       );
+                     })}
+
+                     {/* Add Step Button */}
+                     <div className="relative z-10 flex items-center ml-1">
+                        <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 border border-slate-200 ml-1 hover:bg-purple-50 hover:text-purple-600 hover:border-purple-200 cursor-pointer transition-colors">
+                          <Plus size={20} />
+                        </div>
+                        <span className="ml-4 text-sm text-slate-400">添加流程步骤</span>
+                     </div>
+                   </div>
+                </div>
+              </div>
+           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // L3 View
+  const L3View = () => (
+    <div className="p-6 h-full flex flex-col">
+       <header className="flex justify-between items-center mb-6">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900 flex items-center">
+            <span className="bg-slate-100 text-slate-700 text-sm font-bold px-2 py-1 rounded mr-3">L3</span>
+            系统与部门映射
+          </h2>
+          <p className="text-sm text-slate-500 mt-1">解决多部门多系统的数据落地问题，管理语义对象的所有权与物理实现。</p>
+        </div>
+        <div className="flex space-x-3">
+          <button className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 shadow-sm">
+             同步数据源
+          </button>
+          <button className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center shadow-sm">
+            <GitMerge size={16} className="mr-2" />
+            自动映射
+          </button>
+        </div>
+      </header>
+
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm flex-1 overflow-hidden flex flex-col">
+         {/* Filters */}
+         <div className="p-3 border-b border-slate-200 flex space-x-4 bg-slate-50">
+            <div className="flex items-center space-x-2 text-sm text-slate-600">
+               <Server size={14} />
+               <span>系统:</span>
+               <select className="bg-white border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none">
+                 <option>全部</option>
+                 <option>交易中心</option>
+                 <option>商品中心</option>
+               </select>
+            </div>
+             <div className="flex items-center space-x-2 text-sm text-slate-600">
+               <Building2 size={14} />
+               <span>部门:</span>
+               <select className="bg-white border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none">
+                 <option>全部</option>
+                 <option>交易中台部</option>
+               </select>
+            </div>
+         </div>
+
+         {/* Table */}
+         <div className="flex-1 overflow-y-auto">
+            <table className="w-full text-left text-sm">
+               <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200 sticky top-0 z-10">
+                  <tr>
+                     <th className="px-6 py-3">L1 语义对象</th>
+                     <th className="px-6 py-3">归属系统</th>
+                     <th className="px-6 py-3">物理表名</th>
+                     <th className="px-6 py-3">责任部门</th>
+                     <th className="px-6 py-3">状态</th>
+                     <th className="px-6 py-3">最近同步</th>
+                     <th className="px-6 py-3 text-right">操作</th>
+                  </tr>
+               </thead>
+               <tbody className="divide-y divide-slate-100">
+                  {mappings.map(m => (
+                    <tr key={m.id} className="hover:bg-slate-50 group">
+                       <td className="px-6 py-4">
+                          <div className="font-medium text-slate-800">{m.objectName}</div>
+                          <div className="text-xs text-slate-400 font-mono">{m.objectId}</div>
+                       </td>
+                       <td className="px-6 py-4 text-slate-600">
+                          {m.system}
+                       </td>
+                       <td className="px-6 py-4">
+                          <div className="flex items-center">
+                             <TableIcon size={14} className="text-slate-400 mr-2" />
+                             <span className="font-mono text-slate-600">{m.physicalTable}</span>
+                          </div>
+                       </td>
+                       <td className="px-6 py-4">
+                          <span className="inline-flex items-center px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs">
+                             {m.ownerDepartment}
+                          </span>
+                       </td>
+                       <td className="px-6 py-4">
+                          {m.status === 'mapped' && <span className="text-green-600 flex items-center text-xs"><CheckCircle size={14} className="mr-1"/> 已映射</span>}
+                          {m.status === 'conflict' && <span className="text-red-500 flex items-center text-xs"><AlertCircle size={14} className="mr-1"/> 字段冲突</span>}
+                          {m.status === 'pending' && <span className="text-amber-500 flex items-center text-xs"><MoreHorizontal size={14} className="mr-1"/> 待关联</span>}
+                       </td>
+                       <td className="px-6 py-4 text-slate-400 text-xs">{m.lastSync}</td>
+                       <td className="px-6 py-4 text-right">
+                          <button className="text-blue-600 hover:text-blue-800 font-medium text-xs">配置</button>
+                       </td>
+                    </tr>
+                  ))}
+               </tbody>
+            </table>
+         </div>
+      </div>
+    </div>
+  );
+
   // AI Assistant Panel (Sidebar Right)
   const AIAgentPanel = () => (
-    <div className={`w-80 bg-white border-l border-slate-200 shadow-xl flex flex-col transition-all duration-300 ${showAIPanel ? 'mr-0' : '-mr-80 hidden'}`}>
+    <div className={`w-80 bg-white border-l border-slate-200 shadow-xl flex flex-col transition-all duration-300 flex-shrink-0 ${showAIPanel ? 'mr-0' : '-mr-80 hidden'}`}>
       <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-indigo-50 to-white">
         <div className="flex items-center space-x-2">
           <Bot className="text-indigo-600" size={20} />
@@ -431,36 +696,66 @@ const App = () => {
       </div>
       
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {/* Suggestion Item 1 */}
-        <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
-          <div className="flex items-center space-x-2 mb-2">
-            <span className="bg-green-100 text-green-700 text-[10px] font-bold px-1.5 py-0.5 rounded">建议</span>
-            <span className="text-xs text-slate-400">刚刚</span>
+        {/* Context Aware Suggestions based on Active Tab */}
+        
+        {activeTab === 'l0' && (
+           <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+            <div className="flex items-center space-x-2 mb-2">
+              <span className="bg-green-100 text-green-700 text-[10px] font-bold px-1.5 py-0.5 rounded">L0 建议</span>
+              <span className="text-xs text-slate-400">刚刚</span>
+            </div>
+            <p className="text-sm text-slate-700 mb-2">
+              检测到新的 L0 事实 <span className="font-medium text-slate-900">“会员等级提升”</span>。
+            </p>
+            <div className="bg-slate-50 p-2 rounded text-xs text-slate-600 mb-2">
+              建议创建关联 L1 事件对象：<br/>
+              <strong>Event: 会员升级事件</strong>
+            </div>
+            <div className="flex space-x-2">
+              <button className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-1.5 rounded">采纳并创建</button>
+              <button className="px-3 bg-white border border-slate-200 text-slate-600 text-xs py-1.5 rounded hover:bg-slate-50">忽略</button>
+            </div>
           </div>
-          <p className="text-sm text-slate-700 mb-2">
-            检测到新的 L0 事实 <span className="font-medium text-slate-900">“会员等级提升”</span>。
-          </p>
-          <div className="bg-slate-50 p-2 rounded text-xs text-slate-600 mb-2">
-            建议创建关联 L1 事件对象：<br/>
-            <strong>Event: 会员升级事件</strong>
-          </div>
-          <div className="flex space-x-2">
-            <button className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-1.5 rounded">采纳并创建</button>
-            <button className="px-3 bg-white border border-slate-200 text-slate-600 text-xs py-1.5 rounded hover:bg-slate-50">忽略</button>
-          </div>
-        </div>
+        )}
 
-        {/* Suggestion Item 2 */}
-        <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
-           <div className="flex items-center space-x-2 mb-2">
-            <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded">冲突检测</span>
-            <span className="text-xs text-slate-400">10分钟前</span>
+        {activeTab === 'l2' && (
+           <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+             <div className="flex items-center space-x-2 mb-2">
+               <span className="bg-purple-100 text-purple-700 text-[10px] font-bold px-1.5 py-0.5 rounded">L2 场景建议</span>
+             </div>
+             <p className="text-sm text-slate-700 mb-2">
+               根据您现有的 L1 对象，建议补充以下场景：
+             </p>
+             <ul className="list-disc list-inside text-xs text-slate-600 mb-3 space-y-1">
+               <li>逆向退款流程</li>
+               <li>库存盘点流程</li>
+             </ul>
+             <button className="w-full bg-indigo-50 text-indigo-700 text-xs py-1.5 rounded hover:bg-indigo-100">一键生成草稿</button>
+           </div>
+        )}
+
+        {activeTab === 'l3' && (
+           <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+             <div className="flex items-center space-x-2 mb-2">
+               <span className="bg-red-100 text-red-700 text-[10px] font-bold px-1.5 py-0.5 rounded">映射冲突</span>
+             </div>
+             <p className="text-sm text-slate-700 mb-2">
+               对象 <span className="font-medium">“会员账户快照”</span> 的字段 `balance` 与物理表 `t_mb_asset` 中的类型不一致 (Decimal vs Int)。
+             </p>
+             <button className="w-full bg-white border border-slate-200 text-slate-600 text-xs py-1.5 rounded hover:bg-slate-50">查看差异对比</button>
+           </div>
+        )}
+        
+        {/* General Helper */}
+        {activeTab === 'dashboard' && (
+          <div className="text-center py-6">
+            <div className="bg-indigo-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+              <Bot className="text-indigo-500" />
+            </div>
+            <p className="text-sm text-slate-600">我是您的语义建模助手。<br/>请选择一个模块开始工作。</p>
           </div>
-          <p className="text-sm text-slate-700 mb-2">
-            对象 <span className="font-medium">“客户订单”</span> 与系统表 <span className="font-mono text-xs">t_order</span> 存在字段定义差异。
-          </p>
-          <button className="w-full bg-white border border-slate-200 text-slate-600 text-xs py-1.5 rounded hover:bg-slate-50">查看差异对比</button>
-        </div>
+        )}
+
       </div>
 
       <div className="p-4 border-t border-slate-100">
@@ -492,7 +787,8 @@ const App = () => {
              <span className="text-slate-800 font-medium">
                {activeTab === 'dashboard' ? '概览' : 
                 activeTab === 'l0' ? 'L0 业务事实' :
-                activeTab === 'l1' ? 'L1 业务对象' : 'L2 场景建模'}
+                activeTab === 'l1' ? 'L1 业务对象' : 
+                activeTab === 'l2' ? 'L2 场景建模' : 'L3 系统映射'}
              </span>
           </div>
           
@@ -521,11 +817,8 @@ const App = () => {
           {activeTab === 'dashboard' && <DashboardView />}
           {activeTab === 'l0' && <L0View />}
           {activeTab === 'l1' && <L1View />}
-          {activeTab === 'l2' && <div className="flex flex-col items-center justify-center h-full text-slate-400">
-            <Layers size={64} className="mb-4 text-slate-200" />
-            <h3 className="text-lg font-medium text-slate-600">L2 场景建模模块</h3>
-            <p className="mt-2 text-sm">选择一个场景开始构建语义模型...</p>
-          </div>}
+          {activeTab === 'l2' && <L2View />}
+          {activeTab === 'l3' && <L3View />}
         </main>
       </div>
 
