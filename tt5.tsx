@@ -12,7 +12,7 @@ import {
     Book, Tag, User, Clock, Star, Terminal, Globe, Copy,
     Thermometer, Timer, BarChart3, Eraser, GitBranch, Network,
     BrainCircuit, Gauge, FileDigit, List, Bot, Send, MessageSquare, BadgeCheck,
-    ChevronDown, ChevronUp, GripVertical
+    ChevronDown, ChevronUp, GripVertical, Folder
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
@@ -180,6 +180,7 @@ const mockDataSources = [
 const mockScanAssets = [
     {
         id: 'TBL_001',
+        sourceId: 'DS_001',
         name: 't_pop_base_info',
         comment: '人口基础信息表',
         rows: '1.2M',
@@ -194,6 +195,7 @@ const mockScanAssets = [
     },
     {
         id: 'TBL_002',
+        sourceId: 'DS_001',
         name: 't_med_birth_cert',
         comment: '出生证明记录',
         rows: '450K',
@@ -207,6 +209,7 @@ const mockScanAssets = [
     },
     {
         id: 'TBL_003',
+        sourceId: 'DS_001',
         name: 't_hosp_dict',
         comment: '医院字典表',
         rows: '200',
@@ -219,6 +222,7 @@ const mockScanAssets = [
     },
     {
         id: 'TBL_004',
+        sourceId: 'DS_002',
         name: 't_vac_record',
         comment: '疫苗接种记录',
         rows: '3.5M',
@@ -816,12 +820,26 @@ const AIAssistantPanel = ({ visible, onClose, activeModule, contextData }) => {
 // ==========================================
 
 // --- 视图: 数据语义理解 (BU-03) ---
-const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBusinessObjects }) => {
+const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBusinessObjects, dataSources }) => {
     const [selectedTableId, setSelectedTableId] = useState(mockScanAssets[0]?.id);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisResults, setAnalysisResults] = useState({}); // Map of tableId -> result
+    const [expandedSources, setExpandedSources] = useState(new Set(dataSources.map(ds => ds.id)));
+    const [searchTerm, setSearchTerm] = useState("");
 
+    // Enrich mock assets with sourceId if not present (handled in global mock data, ensuring here)
     const selectedTable = mockScanAssets.find(t => t.id === selectedTableId);
+    const selectedDataSource = dataSources.find(ds => ds.id === selectedTable?.sourceId);
+
+    const toggleSource = (sourceId) => {
+        const newExpanded = new Set(expandedSources);
+        if (newExpanded.has(sourceId)) {
+            newExpanded.delete(sourceId);
+        } else {
+            newExpanded.add(sourceId);
+        }
+        setExpandedSources(newExpanded);
+    };
 
     const handleAnalyze = async () => {
         if (!selectedTable) return;
@@ -914,6 +932,17 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
 
     const currentResult = analysisResults[selectedTableId];
 
+    // Prepare data for tree view
+    const filteredAssets = mockScanAssets.filter(asset => 
+        asset.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        asset.comment.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    const treeData = dataSources.map(ds => {
+        const tables = filteredAssets.filter(asset => asset.sourceId === ds.id);
+        return { ...ds, tables };
+    }).filter(ds => ds.tables.length > 0 || searchTerm === ""); // Hide empty sources only if searching
+
     return (
         <div className="space-y-6 h-full flex flex-col">
             <div className="flex justify-between items-center shrink-0">
@@ -930,46 +959,110 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
             </div>
 
             <div className="flex-1 flex gap-6 overflow-hidden">
-                {/* Left: Table List */}
+                {/* Left: Tree View of Data Sources & Tables */}
                 <div className="w-80 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
                     <div className="p-4 border-b border-slate-100 bg-slate-50">
                         <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                            <input type="text" placeholder="搜索物理表..." className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500/20" />
+                            <input 
+                                type="text" 
+                                placeholder="搜索数据源或表..." 
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500/20" 
+                            />
                         </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto">
-                        {mockScanAssets.map(t => (
-                            <div 
-                                key={t.id} 
-                                onClick={() => setSelectedTableId(t.id)}
-                                className={`p-4 border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors ${selectedTableId === t.id ? 'bg-pink-50 border-l-4 border-l-pink-500' : 'border-l-4 border-l-transparent'}`}
-                            >
-                                <div className="flex justify-between items-start mb-1">
-                                    <span className="font-bold text-slate-700 text-sm truncate w-40" title={t.name}>{t.name}</span>
-                                    {analysisResults[t.id] && <BadgeCheck className="text-emerald-500" size={16} />}
+                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                        {treeData.map(ds => (
+                            <div key={ds.id} className="border-b border-slate-50 last:border-0">
+                                {/* Data Source Header */}
+                                <div 
+                                    onClick={() => toggleSource(ds.id)}
+                                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors group"
+                                >
+                                    <div className="flex items-center gap-2 overflow-hidden">
+                                        <div className="w-6 h-6 rounded bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+                                            {ds.type === 'MySQL' ? <Database size={14} /> : <Server size={14} />}
+                                        </div>
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-sm font-bold text-slate-700 truncate" title={ds.name}>{ds.name}</span>
+                                            <span className="text-[10px] text-slate-400 uppercase">{ds.type}</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                        <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 rounded-full">{ds.tables.length}</span>
+                                        {expandedSources.has(ds.id) ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+                                    </div>
                                 </div>
-                                <div className="text-xs text-slate-500 truncate">{t.comment || '无注释'}</div>
+
+                                {/* Tables List */}
+                                {expandedSources.has(ds.id) && (
+                                    <div className="bg-slate-50/50 pb-2">
+                                        {ds.tables.map(t => (
+                                            <div 
+                                                key={t.id} 
+                                                onClick={() => setSelectedTableId(t.id)}
+                                                className={`pl-10 pr-4 py-2 cursor-pointer flex items-center justify-between group transition-all ${
+                                                    selectedTableId === t.id 
+                                                    ? 'bg-pink-50 border-r-2 border-pink-500 text-pink-700' 
+                                                    : 'hover:bg-slate-100 border-r-2 border-transparent text-slate-600'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <Table size={14} className={selectedTableId === t.id ? 'text-pink-500' : 'text-slate-400'} />
+                                                    <span className={`text-sm truncate ${selectedTableId === t.id ? 'font-medium' : ''}`} title={t.name}>{t.name}</span>
+                                                </div>
+                                                {analysisResults[t.id] && <Sparkles size={12} className="text-purple-500 flex-shrink-0" />}
+                                            </div>
+                                        ))}
+                                        {ds.tables.length === 0 && (
+                                            <div className="pl-10 pr-4 py-2 text-xs text-slate-400 italic">未找到匹配的表</div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         ))}
+                        {treeData.length === 0 && (
+                             <div className="p-8 text-center text-slate-400 text-sm">
+                                <Database size={32} className="mx-auto mb-2 opacity-20" />
+                                未找到匹配的数据资产
+                             </div>
+                        )}
                     </div>
                 </div>
 
                 {/* Right: Analysis Panel */}
                 <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-                    {/* Top Action Bar */}
+                    {/* Top Action Bar with Breadcrumb */}
                     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center shrink-0">
-                         <div className="flex items-center gap-3">
-                            <div className="p-2 bg-slate-100 rounded-lg"><Table size={20} className="text-slate-600"/></div>
-                            <div>
-                                <h3 className="font-bold text-lg text-slate-800">{selectedTable?.name}</h3>
-                                <p className="text-xs text-slate-500">Rows: {selectedTable?.rows} • Updated: {selectedTable?.updateTime}</p>
-                            </div>
+                         <div className="flex flex-col gap-1">
+                             {/* Breadcrumb */}
+                             <div className="flex items-center text-xs text-slate-500 mb-1">
+                                 <Database size={12} className="mr-1"/>
+                                 <span>{selectedDataSource?.name || 'Unknown Source'}</span>
+                                 <ChevronRight size={10} className="mx-1"/>
+                                 <span className="font-bold text-slate-700">{selectedTable?.name || 'No Table Selected'}</span>
+                             </div>
+
+                             <div className="flex items-center gap-3">
+                                <div className="p-1.5 bg-slate-100 rounded-lg"><Table size={18} className="text-slate-600"/></div>
+                                <div>
+                                    <h3 className="font-bold text-lg text-slate-800 leading-none">{selectedTable?.name}</h3>
+                                    <p className="text-[10px] text-slate-400 mt-1">
+                                        Rows: {selectedTable?.rows} • Updated: {selectedTable?.updateTime} • {selectedTable?.comment || '无注释'}
+                                    </p>
+                                </div>
+                             </div>
                          </div>
                          <button 
                             onClick={handleAnalyze}
-                            disabled={isAnalyzing}
-                            className={`px-5 py-2.5 rounded-lg text-white font-medium flex items-center gap-2 shadow-sm transition-all ${isAnalyzing ? 'bg-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-pink-600 to-purple-600 hover:shadow-pink-200'}`}
+                            disabled={isAnalyzing || !selectedTable}
+                            className={`px-5 py-2.5 rounded-lg text-white font-medium flex items-center gap-2 shadow-sm transition-all ${
+                                isAnalyzing || !selectedTable 
+                                ? 'bg-slate-400 cursor-not-allowed' 
+                                : 'bg-gradient-to-r from-pink-600 to-purple-600 hover:shadow-pink-200'
+                            }`}
                          >
                             {isAnalyzing ? <RefreshCw size={18} className="animate-spin"/> : <Sparkles size={18} />}
                             {isAnalyzing ? 'AI 正在语义分析中...' : '开始语义理解'}
@@ -979,8 +1072,11 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                     <div className="flex-1 flex gap-4 overflow-hidden">
                         {/* Schema View */}
                         <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
-                            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 font-bold text-sm text-slate-700">物理元数据 (Schema)</div>
-                            <div className="flex-1 overflow-y-auto p-0">
+                            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 font-bold text-sm text-slate-700 flex items-center justify-between">
+                                <span>物理元数据 (Schema)</span>
+                                <span className="text-xs font-normal text-slate-400">{selectedTable?.columns.length || 0} columns</span>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-0 custom-scrollbar">
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-slate-50 text-slate-500 sticky top-0">
                                         <tr><th className="px-4 py-2 font-medium">字段名</th><th className="px-4 py-2 font-medium">类型</th><th className="px-4 py-2 font-medium">原始注释</th></tr>
@@ -995,6 +1091,12 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                         ))}
                                     </tbody>
                                 </table>
+                                {!selectedTable && (
+                                    <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                                        <Move size={32} className="mb-2 opacity-20"/>
+                                        <p className="text-sm">请从左侧选择一个数据表</p>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -1005,7 +1107,7 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                              </div>
                              
                              {currentResult ? (
-                                 <div className="flex-1 overflow-y-auto p-5 space-y-5 animate-fade-in">
+                                 <div className="flex-1 overflow-y-auto p-5 space-y-5 animate-fade-in custom-scrollbar">
                                      <div>
                                          <label className="text-xs font-bold text-purple-400 uppercase tracking-wider">建议业务名称</label>
                                          <div className="text-xl font-bold text-slate-800 mt-1">{currentResult.businessName}</div>
@@ -1289,782 +1391,115 @@ const CandidateGenerationView = ({ candidates, setCandidates, setBusinessObjects
     );
 };
 
+// --- Missing Views Placeholders ---
+
 const BusinessGoalsView = ({ setActiveModule }) => (
-    <div className="space-y-6 animate-fade-in">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">业务梳理 (Business Goals)</h2>
-            <p className="text-sm text-slate-500 mt-1">定义核心业务目标与改革事项。</p>
+    <div className="flex flex-col items-center justify-center h-full text-slate-400">
+         <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4 text-blue-400">
+            <FileText size={32} />
         </div>
-        <div className="grid grid-cols-1 gap-4">
-            {mockBusinessGoals.map(goal => (
-                <div key={goal.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
-                    <div className="flex justify-between items-start mb-3">
-                        <div>
-                            <span className={`px-2 py-1 text-xs rounded-full font-bold ${
-                                goal.priority === 'High' ? 'bg-red-100 text-red-600' :
-                                goal.priority === 'Medium' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'
-                            }`}>{goal.priority} Priority</span>
-                            <h3 className="text-lg font-bold text-slate-800 mt-2">{goal.title}</h3>
-                        </div>
-                        <span className="text-xs text-slate-400 font-mono">{goal.id}</span>
-                    </div>
-                    <p className="text-sm text-slate-600 mb-4">{goal.description}</p>
-                    <div className="flex items-center gap-4 text-xs text-slate-500 border-t border-slate-100 pt-3">
-                        <span className="flex items-center gap-1"><User size={12}/> {goal.owner}</span>
-                        <span className="flex items-center gap-1"><Clock size={12}/> {goal.lastUpdate}</span>
-                        <div className="ml-auto flex gap-2">
-                             {goal.stages.policy && <BadgeCheck size={14} className="text-emerald-500" title="Policy Ready"/>}
-                             {goal.stages.object && <Box size={14} className="text-emerald-500" title="Object Ready"/>}
-                             {goal.stages.scenario && <Layers size={14} className={goal.stages.scenario ? "text-emerald-500" : "text-slate-300"} title="Scenario Ready"/>}
-                        </div>
-                    </div>
-                </div>
-            ))}
-        </div>
+        <h3 className="text-lg font-bold text-slate-600">Business Goals (TD-01)</h3>
+        <p className="text-sm">Module under construction.</p>
     </div>
 );
 
-const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO, setSelectedBO }) => {
-    // Local state for editing to avoid changing main state on every keystroke
-    const [editBO, setEditBO] = useState(null);
-    const [isEditing, setIsEditing] = useState(false);
-
-    // Sync selectedBO with edit state
-    useEffect(() => {
-        if (selectedBO) {
-            setEditBO({ ...selectedBO }); // Deep copy might be better for real app, shallow ok here
-            setIsEditing(selectedBO.status === 'draft');
-        } else if (businessObjects.length > 0) {
-            setSelectedBO(businessObjects[0]);
-        }
-    }, [selectedBO, businessObjects]);
-
-    const handleSave = () => {
-        // Save logic: find in main array and update
-        const newObjects = businessObjects.map(bo => bo.id === editBO.id ? editBO : bo);
-        setBusinessObjects(newObjects);
-        setSelectedBO(editBO); // Update selected ref
-        alert("业务对象已保存！");
-    };
-
-    const handlePublish = () => {
-        const publishedBO = { ...editBO, status: 'published' };
-        const newObjects = businessObjects.map(bo => bo.id === editBO.id ? publishedBO : bo);
-        setBusinessObjects(newObjects);
-        setSelectedBO(publishedBO);
-        setIsEditing(false);
-        alert("业务对象已发布！");
-    };
-
-    const handleFieldChange = (idx, field, value) => {
-        const newFields = [...editBO.fields];
-        newFields[idx] = { ...newFields[idx], [field]: value };
-        setEditBO({ ...editBO, fields: newFields });
-    };
-
-    const handleAddField = () => {
-        const newField = { 
-            id: `f_new_${Date.now()}`, 
-            name: '新属性', 
-            code: 'new_attr', 
-            type: 'String', 
-            length: '-', 
-            required: false, 
-            desc: '-' 
-        };
-        setEditBO({ ...editBO, fields: [...editBO.fields, newField] });
-    };
-
-    const handleDeleteField = (idx) => {
-        const newFields = editBO.fields.filter((_, i) => i !== idx);
-        setEditBO({ ...editBO, fields: newFields });
-    };
-
-    if (!editBO) return <div className="p-6">Loading...</div>;
-
-    return (
-    <div className="space-y-6 h-full flex flex-col animate-fade-in">
-        <div className="flex justify-between items-center shrink-0">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">业务对象建模 (Modeling)</h2>
-                <p className="text-sm text-slate-500 mt-1">管理核心业务实体及其属性定义。</p>
-            </div>
-            <button 
-                onClick={() => {
-                    const newBO = {
-                        id: `BO_${Date.now()}`,
-                        name: '新业务对象',
-                        code: 'biz_new',
-                        domain: '未分类',
-                        owner: '当前用户',
-                        status: 'draft',
-                        version: 'v0.1',
-                        description: '请输入描述...',
-                        fields: []
-                    };
-                    setBusinessObjects(prev => [newBO, ...prev]);
-                    setSelectedBO(newBO);
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700"
-            >
-                <Plus size={16} /> 新建对象
-            </button>
+const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO, setSelectedBO }) => (
+    <div className="flex flex-col items-center justify-center h-full text-slate-400">
+         <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4 text-blue-400">
+            <Box size={32} />
         </div>
-        <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex">
-            {/* Sidebar List */}
-            <div className="w-64 border-r border-slate-200 bg-slate-50 flex flex-col">
-                <div className="p-4 border-b border-slate-200">
-                    <input type="text" placeholder="搜索对象..." className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none" />
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                    {businessObjects.map(bo => (
-                        <div 
-                            key={bo.id} 
-                            onClick={() => setSelectedBO(bo)}
-                            className={`p-3 border-b border-slate-100 cursor-pointer transition-colors ${selectedBO?.id === bo.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-white border-l-4 border-l-transparent'}`}
-                        >
-                            <div className="flex justify-between items-start">
-                                <div className="font-medium text-slate-700 truncate w-32">{bo.name}</div>
-                                {bo.status === 'draft' && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">Draft</span>}
-                            </div>
-                            <div className="text-xs text-slate-400 mt-1 truncate">{bo.code}</div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Main Content Area */}
-            <div className="flex-1 flex flex-col bg-white">
-                 {/* Top Action Bar for Edit Mode */}
-                 <div className="h-14 border-b border-slate-200 flex items-center justify-between px-6 bg-slate-50/50">
-                     <div className="text-xs text-slate-500 flex gap-4">
-                         <span>Version: <b className="text-slate-700">{editBO.version}</b></span>
-                         <span>Owner: <b className="text-slate-700">{editBO.owner}</b></span>
-                         <span>Status: <span className={`font-bold ${editBO.status === 'published' ? 'text-green-600' : 'text-orange-500'}`}>{editBO.status.toUpperCase()}</span></span>
-                     </div>
-                     <div className="flex gap-2">
-                         {isEditing ? (
-                             <>
-                                 <button onClick={handleSave} className="px-3 py-1.5 border border-blue-200 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-50 flex items-center gap-1">
-                                     <Save size={14}/> 保存草稿
-                                 </button>
-                                 <button onClick={handlePublish} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center gap-1">
-                                     <Upload size={14}/> 发布对象
-                                 </button>
-                             </>
-                         ) : (
-                             <button onClick={() => setIsEditing(true)} className="px-3 py-1.5 border border-slate-300 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-100 flex items-center gap-1">
-                                 <Edit size={14}/> 编辑定义
-                             </button>
-                         )}
-                     </div>
-                 </div>
-
-                 <div className="flex-1 overflow-y-auto p-8">
-                    {/* Header Info */}
-                    <div className="mb-8 grid grid-cols-2 gap-6">
-                        <div className="col-span-2">
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">业务对象名称</label>
-                            {isEditing ? (
-                                <input 
-                                    value={editBO.name} 
-                                    onChange={(e) => setEditBO({...editBO, name: e.target.value})}
-                                    className="text-2xl font-bold text-slate-800 bg-slate-50 border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none rounded-lg px-2 py-1 w-full -ml-2"
-                                />
-                            ) : (
-                                <h1 className="text-2xl font-bold text-slate-800">{editBO.name}</h1>
-                            )}
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">唯一编码 (Code)</label>
-                            {isEditing ? (
-                                <input 
-                                    value={editBO.code} 
-                                    onChange={(e) => setEditBO({...editBO, code: e.target.value})}
-                                    className="font-mono text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
-                                />
-                            ) : (
-                                <div className="font-mono text-sm text-slate-600 bg-slate-50 px-2 py-1 rounded inline-block border border-slate-100">{editBO.code}</div>
-                            )}
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">所属域</label>
-                            <div className="text-sm text-slate-700">{editBO.domain}</div>
-                        </div>
-                        <div className="col-span-2">
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">描述</label>
-                            {isEditing ? (
-                                <textarea 
-                                    value={editBO.description} 
-                                    onChange={(e) => setEditBO({...editBO, description: e.target.value})}
-                                    className="w-full text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded p-2 focus:outline-none focus:border-blue-500"
-                                    rows={2}
-                                />
-                            ) : (
-                                <p className="text-sm text-slate-600 leading-relaxed">{editBO.description}</p>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Fields Table */}
-                    <div>
-                        <div className="flex justify-between items-end mb-3">
-                            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">属性定义 (Fields)</h3>
-                            {isEditing && (
-                                <button onClick={handleAddField} className="text-xs text-blue-600 font-bold hover:underline flex items-center gap-1">
-                                    <Plus size={12}/> 添加属性
-                                </button>
-                            )}
-                        </div>
-                        <div className="border border-slate-200 rounded-lg overflow-hidden">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-500">
-                                    <tr>
-                                        {isEditing && <th className="w-8 py-2"></th>}
-                                        <th className="px-4 py-2 font-medium">名称</th>
-                                        <th className="px-4 py-2 font-medium">编码</th>
-                                        <th className="px-4 py-2 font-medium">类型</th>
-                                        <th className="px-4 py-2 font-medium">描述</th>
-                                        {isEditing && <th className="px-4 py-2 font-medium text-right">操作</th>}
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {editBO.fields.map((f, idx) => (
-                                        <tr key={idx} className="group hover:bg-slate-50">
-                                            {isEditing && (
-                                                <td className="text-center text-slate-300 cursor-move"><GripVertical size={14} className="mx-auto"/></td>
-                                            )}
-                                            <td className="px-4 py-2">
-                                                {isEditing ? (
-                                                    <input 
-                                                        value={f.name} 
-                                                        onChange={(e) => handleFieldChange(idx, 'name', e.target.value)}
-                                                        className="w-full bg-transparent focus:bg-white border-b border-transparent focus:border-blue-500 focus:outline-none px-1"
-                                                    />
-                                                ) : <span className="font-medium">{f.name}</span>}
-                                            </td>
-                                            <td className="px-4 py-2 font-mono text-slate-600">
-                                                {isEditing ? (
-                                                    <input 
-                                                        value={f.code} 
-                                                        onChange={(e) => handleFieldChange(idx, 'code', e.target.value)}
-                                                        className="w-full bg-transparent focus:bg-white border-b border-transparent focus:border-blue-500 focus:outline-none px-1"
-                                                    />
-                                                ) : f.code}
-                                            </td>
-                                            <td className="px-4 py-2 text-blue-600">
-                                                {isEditing ? (
-                                                    <select 
-                                                        value={f.type} 
-                                                        onChange={(e) => handleFieldChange(idx, 'type', e.target.value)}
-                                                        className="bg-transparent focus:bg-white border-b border-transparent focus:border-blue-500 focus:outline-none"
-                                                    >
-                                                        <option>String</option>
-                                                        <option>Integer</option>
-                                                        <option>Decimal</option>
-                                                        <option>DateTime</option>
-                                                        <option>Boolean</option>
-                                                        <option>Enum</option>
-                                                    </select>
-                                                ) : f.type}
-                                            </td>
-                                            <td className="px-4 py-2 text-slate-500">
-                                                {isEditing ? (
-                                                    <input 
-                                                        value={f.desc} 
-                                                        onChange={(e) => handleFieldChange(idx, 'desc', e.target.value)}
-                                                        className="w-full bg-transparent focus:bg-white border-b border-transparent focus:border-blue-500 focus:outline-none px-1"
-                                                    />
-                                                ) : f.desc}
-                                            </td>
-                                            {isEditing && (
-                                                <td className="px-4 py-2 text-right">
-                                                    <button onClick={() => handleDeleteField(idx)} className="text-slate-400 hover:text-red-500 p-1">
-                                                        <Trash2 size={14}/>
-                                                    </button>
-                                                </td>
-                                            )}
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                            {editBO.fields.length === 0 && (
-                                <div className="p-8 text-center text-slate-400 text-sm">暂无属性定义，请添加</div>
-                            )}
-                        </div>
-                    </div>
-                 </div>
-            </div>
-        </div>
+        <h3 className="text-lg font-bold text-slate-600">Business Modeling (TD-03)</h3>
+        <p className="text-sm">Manage business objects: {businessObjects.length} items.</p>
     </div>
-    );
-};
+);
 
 const ScenarioOrchestrationView = ({ businessObjects }) => (
-    <div className="space-y-6 animate-fade-in">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">场景编排 (Scenarios)</h2>
-            <p className="text-sm text-slate-500 mt-1">定义业务流程与对象交互逻辑。</p>
+    <div className="flex flex-col items-center justify-center h-full text-slate-400">
+         <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4 text-blue-400">
+            <Layers size={32} />
         </div>
-        <div className="space-y-4">
-             {mockScenarios.map(sc => (
-                 <div key={sc.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                      <div className="flex justify-between items-start mb-4">
-                          <div>
-                              <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
-                                  <Layers size={18} className="text-indigo-500"/> {sc.name}
-                              </h3>
-                              <p className="text-sm text-slate-500 mt-1">{sc.description}</p>
-                          </div>
-                          <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><Edit size={16}/></button>
-                      </div>
-                      
-                      <div className="flex items-center gap-2 overflow-x-auto pb-2">
-                          {sc.nodes.map((node, idx) => (
-                              <React.Fragment key={node.id}>
-                                  <div className={`px-4 py-2 rounded-lg border text-sm flex items-center gap-2 whitespace-nowrap ${
-                                      node.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
-                                      node.status === 'process' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-500'
-                                  }`}>
-                                      {node.type === 'start' && <Play size={12}/>}
-                                      {node.type === 'end' && <CheckCircle size={12}/>}
-                                      {node.label}
-                                  </div>
-                                  {idx < sc.nodes.length - 1 && (
-                                      <ArrowRight size={14} className="text-slate-300 shrink-0"/>
-                                  )}
-                              </React.Fragment>
-                          ))}
-                      </div>
-                 </div>
-             ))}
-        </div>
+        <h3 className="text-lg font-bold text-slate-600">Scenario Orchestration (TD-04)</h3>
+        <p className="text-sm">Module under construction.</p>
     </div>
 );
 
 const DataSourceManagementView = ({ dataSources, setDataSources }) => (
-    <div className="space-y-6 animate-fade-in">
-         <div className="flex justify-between items-center">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">数据源管理 (Connect)</h2>
-                <p className="text-sm text-slate-500 mt-1">配置物理数据库连接。</p>
-            </div>
-            <button className="px-4 py-2 bg-emerald-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-emerald-700">
-                <Plus size={16} /> 新增数据源
-            </button>
+    <div className="flex flex-col items-center justify-center h-full text-slate-400">
+         <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-4 text-emerald-400">
+            <Database size={32} />
         </div>
-        <div className="grid grid-cols-1 gap-4">
-            {dataSources.map(ds => (
-                <div key={ds.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center gap-6">
-                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 shrink-0">
-                        {ds.type === 'MySQL' ? <Database size={24} className="text-blue-500"/> : 
-                         ds.type === 'Oracle' ? <Database size={24} className="text-red-500"/> :
-                         <Database size={24}/>}
-                    </div>
-                    <div className="flex-1 w-full text-center md:text-left">
-                        <h3 className="font-bold text-slate-800 text-lg">{ds.name}</h3>
-                        <div className="text-xs text-slate-500 font-mono mt-1">{ds.type} • {ds.host}:{ds.port} • {ds.dbName}</div>
-                        <div className="flex items-center gap-2 mt-2 justify-center md:justify-start">
-                             <div className={`w-2 h-2 rounded-full ${ds.status === 'connected' ? 'bg-emerald-500' : ds.status === 'error' ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
-                             <span className="text-xs text-slate-600 capitalize">{ds.status}</span>
-                             {ds.status === 'error' && <span className="text-xs text-red-500 flex items-center gap-1"><AlertCircle size={10}/> Connection Failed</span>}
-                        </div>
-                    </div>
-                    <div className="flex gap-2">
-                        <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><RefreshCw size={16}/></button>
-                        <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"><Settings size={16}/></button>
-                    </div>
-                </div>
-            ))}
-        </div>
+        <h3 className="text-lg font-bold text-slate-600">Data Source Management (BU-01)</h3>
+         <p className="text-sm">Manage data sources: {dataSources.length} items.</p>
     </div>
 );
 
 const AssetScanningView = ({ setActiveModule, candidates }) => (
-    <div className="space-y-6 animate-fade-in">
-        <div className="flex justify-between items-center">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">资产扫描 (Discovery)</h2>
-                <p className="text-sm text-slate-500 mt-1">自动扫描物理数据源，发现技术元数据。</p>
-            </div>
-            <div className="flex gap-2">
-                 <button className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50">配置规则</button>
-                 <button className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700">
-                    <RefreshCw size={16} /> 立即扫描
-                 </button>
-            </div>
+    <div className="flex flex-col items-center justify-center h-full text-slate-400">
+         <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-4 text-emerald-400">
+            <Scan size={32} />
         </div>
-        
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-             <table className="w-full text-sm text-left">
-                 <thead className="bg-slate-50 text-slate-500 font-medium">
-                     <tr>
-                         <th className="px-6 py-3">物理表名</th>
-                         <th className="px-6 py-3">注释</th>
-                         <th className="px-6 py-3">数据行数</th>
-                         <th className="px-6 py-3">更新时间</th>
-                         <th className="px-6 py-3">状态</th>
-                         <th className="px-6 py-3 text-right">操作</th>
-                     </tr>
-                 </thead>
-                 <tbody className="divide-y divide-slate-100">
-                     {mockScanAssets.map(asset => (
-                         <tr key={asset.id} className="hover:bg-slate-50 transition-colors">
-                             <td className="px-6 py-4 font-mono font-medium text-slate-700">{asset.name}</td>
-                             <td className="px-6 py-4 text-slate-500">{asset.comment || '-'}</td>
-                             <td className="px-6 py-4 text-slate-600">{asset.rows}</td>
-                             <td className="px-6 py-4 text-slate-400 text-xs">{asset.updateTime}</td>
-                             <td className="px-6 py-4">
-                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                                     asset.status === 'new' ? 'bg-green-100 text-green-700' : 
-                                     asset.status === 'changed' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'
-                                 }`}>
-                                     {asset.status.toUpperCase()}
-                                 </span>
-                             </td>
-                             <td className="px-6 py-4 text-right">
-                                 <button onClick={() => setActiveModule('bu_semantics')} className="text-blue-600 hover:text-blue-800 font-medium text-xs">语义解析</button>
-                             </td>
-                         </tr>
-                     ))}
-                 </tbody>
-             </table>
-        </div>
+        <h3 className="text-lg font-bold text-slate-600">Asset Scanning (BU-02)</h3>
+        <p className="text-sm">Module under construction.</p>
     </div>
 );
 
 const MappingStudioView = ({ selectedBO }) => (
-    <div className="space-y-6 animate-fade-in">
-        <div className="flex justify-between items-center">
-             <div>
-                <h2 className="text-2xl font-bold text-slate-800">映射工作台 (Mapping)</h2>
-                <p className="text-sm text-slate-500 mt-1">定义业务对象属性与物理表字段的映射关系。</p>
-            </div>
-            <div className="flex gap-2">
-                 <span className="text-sm text-slate-500 self-center">当前对象: <b className="text-slate-800">{selectedBO?.name || '未选择'}</b></span>
-            </div>
+    <div className="flex flex-col items-center justify-center h-full text-slate-400">
+         <div className="w-16 h-16 bg-purple-50 rounded-full flex items-center justify-center mb-4 text-purple-400">
+            <GitMerge size={32} />
         </div>
-
-        <div className="flex gap-8 items-start">
-             {/* Source: Business Object */}
-             <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm p-5">
-                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Box size={18}/> 业务对象 (Logical)</h3>
-                 <div className="space-y-2">
-                     {selectedBO?.fields?.map(f => (
-                         <div key={f.id} className="p-3 border border-slate-200 rounded-lg bg-slate-50 flex justify-between items-center">
-                             <div>
-                                 <div className="font-bold text-sm text-slate-700">{f.name}</div>
-                                 <div className="text-xs text-slate-400 font-mono">{f.code} ({f.type})</div>
-                             </div>
-                             <div className="w-3 h-3 rounded-full bg-blue-400"></div>
-                         </div>
-                     ))}
-                     {(!selectedBO?.fields || selectedBO.fields.length === 0) && <div className="text-center text-slate-400 py-4 text-sm">无属性定义</div>}
-                 </div>
-             </div>
-             
-             {/* Center: Mapping Lines (Visual representation simplified) */}
-             <div className="w-16 flex flex-col items-center justify-center pt-20 gap-4 opacity-50">
-                 <ArrowRight size={24} className="text-slate-400"/>
-                 <GitMerge size={24} className="text-purple-400"/>
-                 <ArrowRight size={24} className="text-slate-400"/>
-             </div>
-
-             {/* Target: Physical Table */}
-             <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm p-5">
-                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Database size={18}/> 物理表 (Physical)</h3>
-                 {selectedBO?.sourceTables?.[0] ? (
-                      <div className="space-y-2">
-                         {/* Mocking mapping based on mockMappings or generic list if not exact match found easily */}
-                         {mockPhysicalTables[0].fields.map((col, idx) => (
-                             <div key={idx} className="p-3 border border-slate-200 rounded-lg bg-slate-50 flex justify-between items-center">
-                                 <div className="w-3 h-3 rounded-full bg-emerald-400"></div>
-                                 <div className="text-right">
-                                     <div className="font-bold text-sm text-slate-700">{col.name}</div>
-                                     <div className="text-xs text-slate-400 font-mono">{col.type}</div>
-                                 </div>
-                             </div>
-                         ))}
-                      </div>
-                 ) : (
-                     <div className="text-center text-slate-400 py-10 border-2 border-dashed border-slate-200 rounded-lg">
-                         未绑定物理源表
-                     </div>
-                 )}
-             </div>
-        </div>
-
-        {/* Mapping Table */}
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm mt-6">
-            <div className="px-6 py-4 border-b border-slate-100 font-bold text-slate-700">已定义映射规则</div>
-            <table className="w-full text-sm text-left">
-                 <thead className="bg-slate-50 text-slate-500 font-medium">
-                     <tr>
-                         <th className="px-6 py-3">业务属性</th>
-                         <th className="px-6 py-3">物理字段</th>
-                         <th className="px-6 py-3">转换规则</th>
-                         <th className="px-6 py-3 text-right">操作</th>
-                     </tr>
-                 </thead>
-                 <tbody className="divide-y divide-slate-100">
-                     {mockMappings.map((m, i) => (
-                         <tr key={i} className="hover:bg-slate-50">
-                             <td className="px-6 py-3 font-medium text-slate-700">{m.boField}</td>
-                             <td className="px-6 py-3 font-mono text-slate-600">{m.tblField}</td>
-                             <td className="px-6 py-3"><span className="bg-blue-50 text-blue-600 px-2 py-1 rounded text-xs border border-blue-100">{m.rule}</span></td>
-                             <td className="px-6 py-3 text-right text-slate-400 hover:text-red-500 cursor-pointer"><Trash2 size={16} /></td>
-                         </tr>
-                     ))}
-                 </tbody>
-            </table>
-        </div>
+        <h3 className="text-lg font-bold text-slate-600">Mapping Studio (SG-01)</h3>
+        <p className="text-sm">Selected Object: {selectedBO?.name || 'None'}</p>
     </div>
 );
 
 const ConflictDetectionView = ({ setActiveModule }) => (
-    <div className="space-y-6 animate-fade-in">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">冲突检测 (Governance)</h2>
-            <p className="text-sm text-slate-500 mt-1">检测业务定义与物理实现之间的差异与冲突。</p>
+     <div className="flex flex-col items-center justify-center h-full text-slate-400">
+         <div className="w-16 h-16 bg-purple-50 rounded-full flex items-center justify-center mb-4 text-purple-400">
+            <Shield size={32} />
         </div>
-        <div className="grid grid-cols-1 gap-4">
-             {mockConflicts.map(cf => (
-                 <div key={cf.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex gap-4 hover:shadow-md transition-all">
-                     <div className={`mt-1 ${
-                         cf.severity === 'High' ? 'text-red-500' : 
-                         cf.severity === 'Medium' ? 'text-orange-500' : 'text-blue-500'
-                     }`}>
-                         <AlertTriangle size={24} />
-                     </div>
-                     <div className="flex-1">
-                         <div className="flex justify-between items-start">
-                             <h3 className="font-bold text-slate-800 text-lg">{cf.title}</h3>
-                             <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                                 cf.severity === 'High' ? 'bg-red-100 text-red-700' : 
-                                 cf.severity === 'Medium' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
-                             }`}>{cf.severity}</span>
-                         </div>
-                         <p className="text-sm text-slate-600 mt-1 mb-3">{cf.desc}</p>
-                         <div className="flex items-center gap-4 text-xs text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                             <span>对象: <b>{cf.objectName}</b></span>
-                             <span>资产: <b>{cf.assetName}</b></span>
-                             <span>检测时间: {cf.detectedAt}</span>
-                         </div>
-                     </div>
-                     <div className="flex flex-col gap-2 justify-center">
-                         <button onClick={() => setActiveModule('mapping')} className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 whitespace-nowrap">去修复</button>
-                         <button className="px-4 py-2 border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 whitespace-nowrap">忽略</button>
-                     </div>
-                 </div>
-             ))}
-        </div>
+        <h3 className="text-lg font-bold text-slate-600">Conflict Detection (SG-02)</h3>
+        <p className="text-sm">Module under construction.</p>
     </div>
 );
 
 const DataCatalogView = () => (
-    <div className="space-y-6 animate-fade-in">
-        <div className="flex justify-between items-center">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">统一元数据目录 (Catalog)</h2>
-                <p className="text-sm text-slate-500 mt-1">管理全域数据资产目录。</p>
-            </div>
-             <div className="relative">
-                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                 <input type="text" placeholder="搜索资产..." className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" />
-             </div>
+     <div className="flex flex-col items-center justify-center h-full text-slate-400">
+         <div className="w-16 h-16 bg-purple-50 rounded-full flex items-center justify-center mb-4 text-purple-400">
+            <BookIcon size={32} className="" />
         </div>
+        <h3 className="text-lg font-bold text-slate-600">Data Catalog (SG-04)</h3>
+        <p className="text-sm">Module under construction.</p>
+    </div>
+);
 
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-             <table className="w-full text-sm text-left">
-                 <thead className="bg-slate-50 text-slate-500 font-medium">
-                     <tr>
-                         <th className="px-6 py-3">资产名称</th>
-                         <th className="px-6 py-3">类型</th>
-                         <th className="px-6 py-3">编码</th>
-                         <th className="px-6 py-3">Owner</th>
-                         <th className="px-6 py-3">质量分</th>
-                         <th className="px-6 py-3">标签</th>
-                     </tr>
-                 </thead>
-                 <tbody className="divide-y divide-slate-100">
-                     {mockCatalogAssets.map(asset => (
-                         <tr key={asset.id} className="hover:bg-slate-50">
-                             <td className="px-6 py-4 font-bold text-slate-700">{asset.name}</td>
-                             <td className="px-6 py-4">
-                                 <span className={`px-2 py-1 rounded text-xs ${
-                                     asset.type === 'Business Object' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'
-                                 }`}>{asset.type}</span>
-                             </td>
-                             <td className="px-6 py-4 font-mono text-slate-500 text-xs">{asset.code}</td>
-                             <td className="px-6 py-4 text-slate-600">{asset.owner}</td>
-                             <td className="px-6 py-4">
-                                 <div className="flex items-center gap-2">
-                                     <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                                         <div className={`h-full ${asset.quality >= 90 ? 'bg-green-500' : 'bg-orange-500'}`} style={{width: `${asset.quality}%`}}></div>
-                                     </div>
-                                     <span className="text-xs font-bold">{asset.quality}</span>
-                                 </div>
-                             </td>
-                             <td className="px-6 py-4">
-                                 <div className="flex gap-1">
-                                     {asset.tags.map(tag => (
-                                         <span key={tag} className="px-1.5 py-0.5 border border-slate-200 text-slate-500 rounded text-[10px]">{tag}</span>
-                                     ))}
-                                 </div>
-                             </td>
-                         </tr>
-                     ))}
-                 </tbody>
-             </table>
+ const DataLineageView = () => (
+     <div className="flex flex-col items-center justify-center h-full text-slate-400">
+         <div className="w-16 h-16 bg-purple-50 rounded-full flex items-center justify-center mb-4 text-purple-400">
+            <GitBranch size={32} />
         </div>
+        <h3 className="text-lg font-bold text-slate-600">Data Lineage (SG-05)</h3>
+        <p className="text-sm">Module under construction.</p>
     </div>
 );
 
 const ApiGatewayView = () => (
-    <div className="space-y-6 animate-fade-in">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">API 服务网关 (Gateway)</h2>
-            <p className="text-sm text-slate-500 mt-1">管理基于语义模型自动生成的 API 服务。</p>
+    <div className="flex flex-col items-center justify-center h-full text-slate-400">
+         <div className="w-16 h-16 bg-orange-50 rounded-full flex items-center justify-center mb-4 text-orange-400">
+            <Server size={32} />
         </div>
-        <div className="grid grid-cols-1 gap-4">
-             {mockApiServices.map(api => (
-                 <div key={api.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-6">
-                     <div className={`px-3 py-1.5 rounded-lg text-sm font-bold font-mono ${
-                         api.method === 'GET' ? 'bg-blue-100 text-blue-700' : 
-                         api.method === 'POST' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'
-                     }`}>{api.method}</div>
-                     <div className="flex-1">
-                         <div className="font-bold text-slate-800">{api.name}</div>
-                         <div className="text-xs text-slate-500 font-mono mt-1">{api.path}</div>
-                     </div>
-                     <div className="flex items-center gap-8 text-sm">
-                         <div className="text-center">
-                             <div className="text-slate-400 text-xs">QPS</div>
-                             <div className="font-bold text-slate-700">{api.qps}</div>
-                         </div>
-                         <div className="text-center">
-                             <div className="text-slate-400 text-xs">Latency</div>
-                             <div className={`font-bold ${parseInt(api.latency) > 100 ? 'text-orange-500' : 'text-slate-700'}`}>{api.latency}</div>
-                         </div>
-                         <div className="text-center">
-                             <div className="text-slate-400 text-xs">Error Rate</div>
-                             <div className="font-bold text-slate-700">{api.errorRate}</div>
-                         </div>
-                         <div className={`px-2 py-1 rounded text-xs font-bold ${api.status === 'Online' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
-                             {api.status}
-                         </div>
-                     </div>
-                     <div className="flex gap-2">
-                         <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><Terminal size={16}/></button>
-                         <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Share2 size={16}/></button>
-                     </div>
-                 </div>
-             ))}
-        </div>
+        <h3 className="text-lg font-bold text-slate-600">API Gateway (EE-05)</h3>
+        <p className="text-sm">Module under construction.</p>
     </div>
 );
 
 const CacheStrategyView = () => (
-    <div className="space-y-6 animate-fade-in">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">缓存策略配置 (Caching)</h2>
-            <p className="text-sm text-slate-500 mt-1">配置语义层数据的缓存加速策略。</p>
+     <div className="flex flex-col items-center justify-center h-full text-slate-400">
+         <div className="w-16 h-16 bg-orange-50 rounded-full flex items-center justify-center mb-4 text-orange-400">
+            <RefreshCw size={32} />
         </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             <div className="space-y-4">
-                 <h3 className="font-bold text-slate-700 flex items-center gap-2"><Settings size={18}/> 策略定义</h3>
-                 {mockCachePolicies.map(cp => (
-                     <div key={cp.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                         <div className="flex justify-between items-center mb-2">
-                             <div className="font-bold text-slate-700">{cp.name}</div>
-                             <div className={`w-2 h-2 rounded-full ${cp.status === 'Active' ? 'bg-green-500' : 'bg-slate-300'}`}></div>
-                         </div>
-                         <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-                             <div>Target: <span className="text-slate-700">{cp.target}</span></div>
-                             <div>Type: <span className="text-slate-700">{cp.type}</span></div>
-                             <div>TTL: <span className="text-slate-700">{cp.ttl}</span></div>
-                             <div>Eviction: <span className="text-slate-700">{cp.eviction}</span></div>
-                         </div>
-                     </div>
-                 ))}
-             </div>
-
-             <div className="space-y-4">
-                 <h3 className="font-bold text-slate-700 flex items-center gap-2"><Activity size={18}/> 热门缓存 Key</h3>
-                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                     <table className="w-full text-xs text-left">
-                         <thead className="bg-slate-50 text-slate-500">
-                             <tr>
-                                 <th className="px-4 py-2">Key Pattern</th>
-                                 <th className="px-4 py-2">Size</th>
-                                 <th className="px-4 py-2">Hits</th>
-                             </tr>
-                         </thead>
-                         <tbody className="divide-y divide-slate-100">
-                             {mockCacheKeys.map((k, i) => (
-                                 <tr key={i}>
-                                     <td className="px-4 py-2 font-mono text-slate-600 truncate max-w-[150px]" title={k.key}>{k.key}</td>
-                                     <td className="px-4 py-2 text-slate-500">{k.size}</td>
-                                     <td className="px-4 py-2 text-slate-700 font-medium">{k.hits}</td>
-                                 </tr>
-                             ))}
-                         </tbody>
-                     </table>
-                 </div>
-             </div>
-        </div>
-    </div>
-);
-
-const DataLineageView = () => (
-    <div className="space-y-6 animate-fade-in h-full flex flex-col">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">全链路血缘 (Lineage)</h2>
-            <p className="text-sm text-slate-500 mt-1">可视化数据从物理源到 API 服务的流转过程。</p>
-        </div>
-        
-        <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm p-8 flex items-center justify-center overflow-auto relative">
-            <div className="absolute top-4 right-4 flex gap-2">
-                <button className="p-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50"><ZoomIn size={16} /></button>
-                <button className="p-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50"><ZoomOut size={16} /></button>
-            </div>
-            
-            {/* Simple static SVG visualization for lineage */}
-            <svg width="800" height="400" viewBox="0 0 800 400" className="w-full h-full max-w-4xl">
-                 <defs>
-                     <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                         <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
-                     </marker>
-                 </defs>
-                 
-                 {/* Links */}
-                 <path d="M 150 200 L 300 200" stroke="#cbd5e1" strokeWidth="2" markerEnd="url(#arrowhead)" />
-                 <path d="M 400 200 L 550 150" stroke="#cbd5e1" strokeWidth="2" markerEnd="url(#arrowhead)" />
-                 <path d="M 400 200 L 550 250" stroke="#cbd5e1" strokeWidth="2" markerEnd="url(#arrowhead)" />
-
-                 {/* Nodes */}
-                 <g transform="translate(50, 170)">
-                     <rect x="0" y="0" width="100" height="60" rx="6" fill="#ecfdf5" stroke="#10b981" strokeWidth="2"/>
-                     <text x="50" y="35" textAnchor="middle" className="text-xs font-bold fill-emerald-800">MySQL 源</text>
-                 </g>
-
-                 <g transform="translate(300, 170)">
-                     <rect x="0" y="0" width="100" height="60" rx="6" fill="#eff6ff" stroke="#3b82f6" strokeWidth="2"/>
-                     <text x="50" y="35" textAnchor="middle" className="text-xs font-bold fill-blue-800">物理表</text>
-                 </g>
-
-                 <g transform="translate(550, 120)">
-                     <rect x="0" y="0" width="100" height="60" rx="6" fill="#f5f3ff" stroke="#8b5cf6" strokeWidth="2"/>
-                     <text x="50" y="35" textAnchor="middle" className="text-xs font-bold fill-purple-800">业务对象</text>
-                 </g>
-
-                 <g transform="translate(550, 220)">
-                     <rect x="0" y="0" width="100" height="60" rx="6" fill="#fff7ed" stroke="#f97316" strokeWidth="2"/>
-                     <text x="50" y="35" textAnchor="middle" className="text-xs font-bold fill-orange-800">API 服务</text>
-                 </g>
-            </svg>
-        </div>
+        <h3 className="text-lg font-bold text-slate-600">Cache Strategy (EE-06)</h3>
+        <p className="text-sm">Module under construction.</p>
     </div>
 );
 
@@ -2092,7 +1527,7 @@ const SemanticLayerApp = () => {
             case 'td_scenario': return <ScenarioOrchestrationView businessObjects={businessObjects} />;
             case 'bu_connect': return <DataSourceManagementView dataSources={dataSources} setDataSources={setDataSources} />;
             case 'bu_discovery': return <AssetScanningView setActiveModule={setActiveModule} candidates={candidates} />;
-            case 'bu_semantics': return <DataSemanticUnderstandingView setActiveModule={setActiveModule} businessObjects={businessObjects} setBusinessObjects={setBusinessObjects} />;
+            case 'bu_semantics': return <DataSemanticUnderstandingView setActiveModule={setActiveModule} businessObjects={businessObjects} setBusinessObjects={setBusinessObjects} dataSources={dataSources} />;
             case 'bu_candidates': return <CandidateGenerationView 
                                             candidates={candidates} 
                                             setCandidates={setCandidates} 
