@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     Layout, Database, GitMerge, Server, Layers,
     Search, AlertCircle, CheckCircle, ArrowRight,
@@ -11,8 +11,9 @@ import {
     Sliders, CheckSquare, XCircle, AlertTriangle, FileWarning, Hammer,
     Book, Tag, User, Clock, Star, Terminal, Globe, Copy,
     Thermometer, Timer, BarChart3, Eraser, GitBranch, Network,
-    BrainCircuit, Gauge, FileDigit, List
+    BrainCircuit, Gauge, FileDigit, List, Bot, Send, MessageSquare
 } from 'lucide-react';
+import { GoogleGenAI } from "@google/genai";
 
 // ==========================================
 // 1. 模拟数据 (Mock Data)
@@ -550,7 +551,7 @@ const Sidebar = ({ activeModule, setActiveModule }) => {
     ];
 
     return (
-        <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shadow-xl z-20">
+        <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shadow-xl z-20 flex-shrink-0">
             <div className="h-16 flex items-center px-6 border-b border-slate-800">
                 <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center mr-3">
                     <Link className="text-white" size={18} />
@@ -602,7 +603,7 @@ const Sidebar = ({ activeModule, setActiveModule }) => {
     );
 };
 
-const Header = ({ activeModule }) => {
+const Header = ({ activeModule, showAssistant, setShowAssistant }) => {
     const getTitle = (id) => {
         switch (id) {
             case 'td_goals': return '业务梳理';
@@ -622,13 +623,25 @@ const Header = ({ activeModule }) => {
     };
 
     return (
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shadow-sm z-10">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shadow-sm z-10 flex-shrink-0">
             <div className="flex items-center text-sm breadcrumbs text-slate-500">
                 <span>Platform</span>
                 <ChevronRight size={14} className="mx-2" />
                 <span className="font-medium text-slate-800 capitalize">{getTitle(activeModule)}</span>
             </div>
             <div className="flex items-center gap-4">
+                <button 
+                    onClick={() => setShowAssistant(!showAssistant)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all ${
+                        showAssistant 
+                        ? 'bg-indigo-50 border-indigo-200 text-indigo-700' 
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                >
+                    <Bot size={16} />
+                    <span className="text-sm font-medium">AI 建模助手</span>
+                </button>
+                <div className="h-6 w-px bg-slate-200"></div>
                 <button className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 relative">
                     <AlertCircle size={20} />
                     <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
@@ -642,7 +655,161 @@ const Header = ({ activeModule }) => {
 };
 
 // ==========================================
-// 4. 功能视图组件 (Feature Views)
+// 4. AI Assistant Component
+// ==========================================
+
+const AIAssistantPanel = ({ visible, onClose, activeModule, contextData }) => {
+    const [messages, setMessages] = useState([]);
+    const [inputValue, setInputValue] = useState("");
+    const [isLoading, setIsLoading] = useState(false);
+    const messagesEndRef = useRef(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages]);
+
+    // Initial greeting based on context
+    useEffect(() => {
+        if (visible && messages.length === 0) {
+           // No default message, rely on the empty state placeholder
+        }
+    }, [visible]);
+
+    const handleSendMessage = async () => {
+        if (!inputValue.trim()) return;
+
+        const userMsg = { role: 'user', text: inputValue };
+        setMessages(prev => [...prev, userMsg]);
+        setInputValue("");
+        setIsLoading(true);
+
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            
+            let systemPrompt = `You are an expert Data Architect and Semantic Modeling Assistant for an enterprise platform. 
+            The user is currently in the module: ${activeModule}.
+            Your goal is to help them with data modeling, resolving conflicts, or understanding the system.
+            
+            Current Mock Data Context Summary:
+            - Business Objects Count: ${contextData.businessObjects?.length || 0}
+            - Data Sources: ${contextData.dataSources?.length || 0}
+            - Pending Candidates: ${contextData.candidates?.length || 0}
+            
+            Be concise, professional, and helpful. Use Markdown for formatting.`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: [
+                    { role: 'user', parts: [{ text: `[System Context: ${systemPrompt}] User Question: ${inputValue}` }] }
+                ]
+            });
+
+            const aiMsg = { role: 'model', text: response.text };
+            setMessages(prev => [...prev, aiMsg]);
+        } catch (error) {
+            console.error("AI Error:", error);
+            setMessages(prev => [...prev, { role: 'model', text: "Sorry, I encountered an error connecting to the AI service. Please check your API key." }]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    if (!visible) return null;
+
+    return (
+        <div className="w-96 bg-white border-l border-slate-200 flex flex-col h-full shadow-xl transition-all duration-300 z-30">
+            {/* Header */}
+            <div className="h-14 border-b border-slate-200 flex items-center justify-between px-4 bg-slate-50/50">
+                <div className="flex items-center gap-2 text-indigo-700">
+                    <Bot size={20} />
+                    <span className="font-bold text-sm">AI 建模助手</span>
+                </div>
+                <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-200">
+                    <ChevronRight size={20} />
+                </button>
+            </div>
+
+            {/* Chat Area */}
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-50 space-y-4">
+                {messages.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center p-6 opacity-60">
+                        <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mb-4 text-indigo-500">
+                            <Bot size={32} />
+                        </div>
+                        <h3 className="text-slate-800 font-bold mb-2">我是您的语义建模助手。</h3>
+                        <p className="text-sm text-slate-500">请选择一个模块开始工作，或直接向我提问关于数据建模、冲突解决的问题。</p>
+                        <div className="mt-6 text-xs text-slate-400 bg-white p-3 rounded border border-slate-200">
+                            试着问：
+                            <ul className="mt-2 space-y-1 text-left list-disc list-inside">
+                                <li>如何解决新生儿对象的字段冲突？</li>
+                                <li>帮我生成一个疫苗接种的业务对象草稿</li>
+                                <li>解释当前的缓存策略</li>
+                            </ul>
+                        </div>
+                    </div>
+                ) : (
+                    messages.map((msg, idx) => (
+                        <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            <div 
+                                className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                                    msg.role === 'user' 
+                                    ? 'bg-blue-600 text-white rounded-br-none' 
+                                    : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'
+                                }`}
+                            >
+                                {msg.text}
+                            </div>
+                        </div>
+                    ))
+                )}
+                {isLoading && (
+                    <div className="flex justify-start">
+                        <div className="bg-white border border-slate-200 px-4 py-3 rounded-2xl rounded-bl-none shadow-sm flex items-center gap-2">
+                            <RefreshCw size={14} className="animate-spin text-indigo-500" />
+                            <span className="text-xs text-slate-500">AI 思考中...</span>
+                        </div>
+                    </div>
+                )}
+                <div ref={messagesEndRef} />
+            </div>
+
+            {/* Input Area */}
+            <div className="p-4 bg-white border-t border-slate-200">
+                <div className="relative">
+                    <input
+                        type="text"
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                        placeholder="向 AI 提问或发出指令..."
+                        className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm transition-all"
+                    />
+                    <button 
+                        onClick={handleSendMessage}
+                        disabled={!inputValue.trim() || isLoading}
+                        className={`absolute right-2 top-2 p-1.5 rounded-lg transition-colors ${
+                            inputValue.trim() && !isLoading
+                            ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm' 
+                            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                        }`}
+                    >
+                        <ArrowRight size={16} />
+                    </button>
+                </div>
+                <div className="text-[10px] text-center text-slate-400 mt-2">
+                    AI 生成的内容可能不准确，请人工核实。
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ==========================================
+// 5. 功能视图组件 (Feature Views) - (Existing Components Kept As Is)
 // ==========================================
 
 // --- 视图 1: 仪表盘 Dashboard ---
@@ -2013,6 +2180,7 @@ export default function SemanticLayerApp() {
     const [selectedBO, setSelectedBO] = useState(mockBusinessObjects[0]);
     const [showRuleEditor, setShowRuleEditor] = useState(null);
     const [candidates, setCandidates] = useState(mockAICandidates);
+    const [showAssistant, setShowAssistant] = useState(false); // Default hidden
 
     const renderContent = () => {
         switch (activeModule) {
@@ -2037,8 +2205,18 @@ export default function SemanticLayerApp() {
         <div className="flex h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
             <Sidebar activeModule={activeModule} setActiveModule={setActiveModule} />
             <div className="flex-1 flex flex-col min-w-0">
-                <Header activeModule={activeModule} />
-                <main className="flex-1 overflow-auto p-6 relative">{renderContent()}</main>
+                <Header activeModule={activeModule} showAssistant={showAssistant} setShowAssistant={setShowAssistant} />
+                <div className="flex-1 flex overflow-hidden relative">
+                    <main className="flex-1 overflow-auto p-6 relative">
+                        {renderContent()}
+                    </main>
+                    <AIAssistantPanel 
+                        visible={showAssistant} 
+                        onClose={() => setShowAssistant(false)} 
+                        activeModule={activeModule}
+                        contextData={{ businessObjects, dataSources, candidates }}
+                    />
+                </div>
             </div>
         </div>
     );
