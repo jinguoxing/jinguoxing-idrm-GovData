@@ -11,7 +11,7 @@ import {
     Sliders, CheckSquare, XCircle, AlertTriangle, FileWarning, Hammer,
     Book, Tag, User, Clock, Star, Terminal, Globe, Copy,
     Thermometer, Timer, BarChart3, Eraser, GitBranch, Network,
-    BrainCircuit, Gauge, FileDigit, List, Bot, Send, MessageSquare
+    BrainCircuit, Gauge, FileDigit, List, Bot, Send, MessageSquare, BadgeCheck
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
@@ -527,6 +527,7 @@ const Sidebar = ({ activeModule, setActiveModule }) => {
             items: [
                 { id: 'bu_connect', label: '数据源管理 (BU-01)', icon: Database },
                 { id: 'bu_discovery', label: '资产扫描 (BU-02)', icon: Scan },
+                { id: 'bu_semantics', label: '数据语义理解 (BU-03)', icon: BrainCircuit },
                 { id: 'bu_candidates', label: '候选生成 (BU-04)', icon: Sparkles },
             ]
         },
@@ -611,6 +612,7 @@ const Header = ({ activeModule, showAssistant, setShowAssistant }) => {
             case 'td_scenario': return '场景编排';
             case 'bu_connect': return '数据源管理';
             case 'bu_discovery': return '资产扫描';
+            case 'bu_semantics': return '数据语义理解';
             case 'bu_candidates': return '候选生成';
             case 'mapping': return '映射工作台';
             case 'governance': return '冲突检测与治理';
@@ -811,6 +813,200 @@ const AIAssistantPanel = ({ visible, onClose, activeModule, contextData }) => {
 // ==========================================
 // 5. 功能视图组件 (Feature Views) - (Existing Components Kept As Is)
 // ==========================================
+
+// --- 视图: 数据语义理解 (BU-03) ---
+const DataSemanticUnderstandingView = () => {
+    const [selectedTableId, setSelectedTableId] = useState(mockScanAssets[0]?.id);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [analysisResults, setAnalysisResults] = useState({}); // Map of tableId -> result
+
+    const selectedTable = mockScanAssets.find(t => t.id === selectedTableId);
+
+    const handleAnalyze = async () => {
+        if (!selectedTable) return;
+        setIsAnalyzing(true);
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const prompt = `
+            作为一个资深数据架构师，请分析以下数据库物理表的语义，将其转化为业务更容易理解的描述。
+            
+            表名: ${selectedTable.name}
+            原始注释: ${selectedTable.comment}
+            字段列表:
+            ${selectedTable.columns.map(c => `- ${c.name} (${c.type}): ${c.comment}`).join('\n')}
+            
+            请输出 JSON 格式，包含以下字段:
+            - businessName: 建议的中文业务名称
+            - description: 详细的业务含义描述 (50字左右)
+            - scenarios: 适用的业务场景列表 (数组)
+            - tags: 业务标签 (数组)
+            - coreFields: 核心业务字段说明 (数组，包含 {field, reason})
+            `;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: { responseMimeType: 'application/json' }
+            });
+            
+            const result = JSON.parse(response.text);
+            setAnalysisResults(prev => ({ ...prev, [selectedTableId]: result }));
+        } catch (error) {
+            console.error("AI Analysis Failed", error);
+            alert("AI 分析请求失败，请检查 API Key 或网络连接。");
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
+    const currentResult = analysisResults[selectedTableId];
+
+    return (
+        <div className="space-y-6 h-full flex flex-col">
+            <div className="flex justify-between items-center shrink-0">
+               <div>
+                 <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <BrainCircuit className="text-pink-500" /> 数据语义理解
+                 </h2>
+                 <p className="text-sm text-slate-500 mt-1">基于 AI 大模型，深度解析物理资产的业务含义，辅助建模。</p>
+               </div>
+               <div className="flex gap-4">
+                  <StatCard label="待分析表" value={mockScanAssets.length - Object.keys(analysisResults).length} trend="Pending" icon={Database} color="blue" />
+                  <StatCard label="已智能解析" value={Object.keys(analysisResults).length} trend="+1" icon={Sparkles} color="purple" />
+               </div>
+            </div>
+
+            <div className="flex-1 flex gap-6 overflow-hidden">
+                {/* Left: Table List */}
+                <div className="w-80 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
+                    <div className="p-4 border-b border-slate-100 bg-slate-50">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                            <input type="text" placeholder="搜索物理表..." className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500/20" />
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto">
+                        {mockScanAssets.map(t => (
+                            <div 
+                                key={t.id} 
+                                onClick={() => setSelectedTableId(t.id)}
+                                className={`p-4 border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors ${selectedTableId === t.id ? 'bg-pink-50 border-l-4 border-l-pink-500' : 'border-l-4 border-l-transparent'}`}
+                            >
+                                <div className="flex justify-between items-start mb-1">
+                                    <span className="font-bold text-slate-700 text-sm truncate w-40" title={t.name}>{t.name}</span>
+                                    {analysisResults[t.id] && <BadgeCheck className="text-emerald-500" size={16} />}
+                                </div>
+                                <div className="text-xs text-slate-500 truncate">{t.comment || '无注释'}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Right: Analysis Panel */}
+                <div className="flex-1 flex flex-col gap-4 overflow-hidden">
+                    {/* Top Action Bar */}
+                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center shrink-0">
+                         <div className="flex items-center gap-3">
+                            <div className="p-2 bg-slate-100 rounded-lg"><Table size={20} className="text-slate-600"/></div>
+                            <div>
+                                <h3 className="font-bold text-lg text-slate-800">{selectedTable?.name}</h3>
+                                <p className="text-xs text-slate-500">Rows: {selectedTable?.rows} • Updated: {selectedTable?.updateTime}</p>
+                            </div>
+                         </div>
+                         <button 
+                            onClick={handleAnalyze}
+                            disabled={isAnalyzing}
+                            className={`px-5 py-2.5 rounded-lg text-white font-medium flex items-center gap-2 shadow-sm transition-all ${isAnalyzing ? 'bg-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-pink-600 to-purple-600 hover:shadow-pink-200'}`}
+                         >
+                            {isAnalyzing ? <RefreshCw size={18} className="animate-spin"/> : <Sparkles size={18} />}
+                            {isAnalyzing ? 'AI 正在语义分析中...' : '开始语义理解'}
+                         </button>
+                    </div>
+
+                    <div className="flex-1 flex gap-4 overflow-hidden">
+                        {/* Schema View */}
+                        <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
+                            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 font-bold text-sm text-slate-700">物理元数据 (Schema)</div>
+                            <div className="flex-1 overflow-y-auto p-0">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-500 sticky top-0">
+                                        <tr><th className="px-4 py-2 font-medium">字段名</th><th className="px-4 py-2 font-medium">类型</th><th className="px-4 py-2 font-medium">原始注释</th></tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {selectedTable?.columns.map((c, idx) => (
+                                            <tr key={idx} className="hover:bg-slate-50">
+                                                <td className="px-4 py-3 font-mono text-slate-700">{c.name}</td>
+                                                <td className="px-4 py-3 text-slate-500 text-xs">{c.type}</td>
+                                                <td className="px-4 py-3 text-slate-600">{c.comment}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* AI Result View */}
+                        <div className="flex-1 bg-gradient-to-br from-white to-purple-50 border border-purple-100 rounded-xl shadow-sm flex flex-col overflow-hidden relative">
+                             <div className="px-4 py-3 border-b border-purple-100 bg-purple-50/50 font-bold text-sm text-purple-800 flex items-center gap-2">
+                                <BrainCircuit size={16}/> AI 语义理解结果
+                             </div>
+                             
+                             {currentResult ? (
+                                 <div className="flex-1 overflow-y-auto p-5 space-y-5 animate-fade-in">
+                                     <div>
+                                         <label className="text-xs font-bold text-purple-400 uppercase tracking-wider">建议业务名称</label>
+                                         <div className="text-xl font-bold text-slate-800 mt-1">{currentResult.businessName}</div>
+                                     </div>
+                                     
+                                     <div>
+                                         <label className="text-xs font-bold text-purple-400 uppercase tracking-wider">业务含义描述</label>
+                                         <p className="text-sm text-slate-600 mt-1 leading-relaxed bg-white/50 p-3 rounded-lg border border-purple-100">
+                                             {currentResult.description}
+                                         </p>
+                                     </div>
+
+                                     <div>
+                                         <label className="text-xs font-bold text-purple-400 uppercase tracking-wider">适用场景</label>
+                                         <div className="flex flex-wrap gap-2 mt-2">
+                                             {currentResult.scenarios?.map(s => (
+                                                 <span key={s} className="px-2.5 py-1 bg-white border border-purple-200 text-purple-700 text-xs rounded-full shadow-sm">{s}</span>
+                                             ))}
+                                         </div>
+                                     </div>
+
+                                     <div>
+                                          <label className="text-xs font-bold text-purple-400 uppercase tracking-wider">关键业务字段</label>
+                                          <ul className="mt-2 space-y-2">
+                                              {currentResult.coreFields?.map((f, i) => (
+                                                  <li key={i} className="text-xs flex gap-2 items-start">
+                                                      <span className="font-mono font-bold text-slate-700 bg-slate-100 px-1 rounded">{f.field}</span>
+                                                      <span className="text-slate-500">- {f.reason}</span>
+                                                  </li>
+                                              ))}
+                                          </ul>
+                                     </div>
+
+                                     <div className="pt-4 border-t border-purple-100">
+                                         <button className="w-full py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 shadow-sm transition-colors">
+                                             确认并保存语义信息
+                                         </button>
+                                     </div>
+                                 </div>
+                             ) : (
+                                 <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 text-center">
+                                     <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-4 text-purple-400">
+                                         <Sparkles size={32} />
+                                     </div>
+                                     <p className="text-sm">点击上方“开始语义理解”按钮<br/>AI 将自动分析表结构并生成业务解释</p>
+                                 </div>
+                             )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // --- 视图 1: 仪表盘 Dashboard ---
 const DashboardView = ({ setActiveModule }) => (
@@ -1464,710 +1660,291 @@ const BusinessModelingView = ({ businessObjects, setBusinessObjects }) => {
     );
 };
 
-// --- 视图: 场景编排 (TD-04) ---
-const ScenarioOrchestrationView = ({ businessObjects }) => {
-    const [activeScenarioId, setActiveScenarioId] = useState(mockScenarios[0].id);
-    const activeScenario = mockScenarios.find(s => s.id === activeScenarioId) || mockScenarios[0];
-
-    return (
-        <div className="flex h-full flex-col gap-6">
-            {/* 补充统计卡片 */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 shrink-0">
-                <StatCard label="场景总数" value={mockScenarios.length} trend="+1" icon={Layers} color="purple" />
-                <StatCard label="生效场景" value={mockScenarios.filter(s => s.status === 'active').length} trend="Online" icon={Play} color="emerald" />
-                <StatCard label="平均节点数" value="3.5" trend="" icon={Share2} color="blue" />
-                <StatCard label="覆盖对象" value="8" trend="High" icon={Box} color="orange" />
-            </div>
-
-            <div className="flex h-full gap-6 overflow-hidden">
-                <div className="w-64 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden shrink-0">
-                    <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                        <h3 className="font-bold text-slate-800">业务场景列表</h3>
-                        <button className="text-blue-600 hover:bg-blue-50 p-1 rounded">
-                            <Plus size={18} />
-                        </button>
+const ScenarioOrchestrationView = () => (
+    <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-slate-800">场景编排 (Scenario Orchestration)</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {mockScenarios.map(scenario => (
+                <div key={scenario.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="flex justify-between items-start mb-4">
+                        <h3 className="font-bold text-lg">{scenario.name}</h3>
+                        <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">{scenario.status}</span>
                     </div>
-                    <div className="p-3 border-b border-slate-100">
-                        <div className="relative">
-                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                            <input type="text" placeholder="搜索场景..." className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded bg-slate-50 focus:bg-white focus:outline-none focus:border-blue-400 transition-colors" />
-                        </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                        {mockScenarios.map(sc => (
-                            <div
-                                key={sc.id}
-                                onClick={() => setActiveScenarioId(sc.id)}
-                                className={`p-3 rounded-lg cursor-pointer transition-all border ${activeScenarioId === sc.id
-                                        ? 'bg-purple-50 border-purple-200 shadow-sm'
-                                        : 'hover:bg-slate-50 border-transparent hover:border-slate-100'
-                                    }`}
-                            >
-                                <div className="flex justify-between items-start mb-1">
-                                    <span className={`font-bold text-sm truncate ${activeScenarioId === sc.id ? 'text-purple-800' : 'text-slate-700'}`}>{sc.name}</span>
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${sc.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                                        }`}>{sc.status === 'active' ? '生效' : '草稿'}</span>
-                                </div>
-                                <div className="text-xs text-slate-400 line-clamp-2">{sc.description}</div>
+                    <p className="text-slate-500 text-sm mb-4">{scenario.description}</p>
+                    <div className="space-y-2">
+                        {scenario.nodes.map((node, i) => (
+                            <div key={node.id} className="flex items-center text-sm">
+                                <span className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-xs mr-3">{i+1}</span>
+                                <span className="font-medium">{node.label}</span>
+                                {node.objectId && <span className="ml-2 text-xs bg-blue-50 text-blue-600 px-1 rounded">{node.objectId}</span>}
                             </div>
                         ))}
                     </div>
                 </div>
-
-                <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl shadow-inner flex flex-col overflow-hidden relative">
-                    <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 bg-white rounded-lg shadow-sm border border-slate-200 p-1">
-                        <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded" title="选择模式"><MousePointer size={18} /></button>
-                        <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded" title="移动画布"><Move size={18} /></button>
-                        <div className="h-px bg-slate-200 my-1"></div>
-                        <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded" title="放大"><ZoomIn size={18} /></button>
-                        <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded" title="缩小"><ZoomOut size={18} /></button>
-                    </div>
-
-                    <div className="absolute top-4 right-4 z-10 flex gap-2">
-                        <button className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 text-sm rounded-lg shadow-sm hover:bg-slate-50">
-                            <Play size={14} className="text-emerald-500" /> 模拟运行
-                        </button>
-                        <button className="flex items-center gap-2 px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg shadow-sm hover:bg-purple-700 shadow-purple-200">
-                            <Save size={14} /> 保存场景
-                        </button>
-                    </div>
-
-                    <div className="flex-1 overflow-auto flex items-center justify-center p-10">
-                        <div className="flex items-center gap-8">
-                            {activeScenario.nodes.map((node, idx) => {
-                                const matchedBO = businessObjects.find(bo => bo.id === node.objectId);
-                                const isLast = idx === activeScenario.nodes.length - 1;
-                                const edge = activeScenario.edges.find(e => e.from === node.id);
-
-                                return (
-                                    <React.Fragment key={node.id}>
-                                        <div className={`relative w-48 bg-white rounded-xl shadow-lg border-2 transition-transform hover:-translate-y-1 ${node.type === 'start' ? 'border-blue-400' :
-                                                node.type === 'end' ? 'border-slate-400' :
-                                                    node.type === 'object' ? 'border-purple-400' : 'border-orange-400'
-                                            }`}>
-                                            <div className={`px-4 py-2 rounded-t-lg border-b text-xs font-bold uppercase tracking-wider flex justify-between items-center ${node.type === 'start' ? 'bg-blue-50 border-blue-100 text-blue-600' :
-                                                    node.type === 'end' ? 'bg-slate-50 border-slate-100 text-slate-600' :
-                                                        node.type === 'object' ? 'bg-purple-50 border-purple-100 text-purple-600' : 'bg-orange-50 border-orange-100 text-orange-600'
-                                                }`}>
-                                                <span>{node.type}</span>
-                                                {node.status === 'done' && <CheckCircle size={14} className="text-emerald-500" />}
-                                                {node.status === 'process' && <RefreshCw size={14} className="text-blue-500 animate-spin-slow" />}
-                                            </div>
-
-                                            <div className="p-4">
-                                                <div className="font-bold text-slate-800 mb-1">{node.label}</div>
-                                                {matchedBO ? (
-                                                    <div className="flex items-center gap-1.5 text-xs text-purple-600 bg-purple-50 px-2 py-1 rounded w-fit mb-2">
-                                                        <Box size={12} /> {matchedBO.name}
-                                                    </div>
-                                                ) : (
-                                                    <div className="text-xs text-slate-400 italic mb-2">无关联对象</div>
-                                                )}
-                                            </div>
-
-                                            <div className="px-4 py-2 border-t border-slate-100 flex justify-end gap-2">
-                                                <Settings size={14} className="text-slate-400 cursor-pointer hover:text-slate-600" />
-                                                <MoreHorizontal size={14} className="text-slate-400 cursor-pointer hover:text-slate-600" />
-                                            </div>
-                                        </div>
-
-                                        {!isLast && (
-                                            <div className="flex flex-col items-center gap-1">
-                                                <div className="text-[10px] text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-sm relative top-3 z-10">
-                                                    {edge?.label || 'next'}
-                                                </div>
-                                                <div className="w-16 h-0.5 bg-slate-300 relative">
-                                                    <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 border-t-2 border-r-2 border-slate-300 rotate-45"></div>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </React.Fragment>
-                                );
-                            })}
-
-                            <div className="w-12 h-12 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 hover:text-blue-500 hover:border-blue-400 cursor-pointer transition-colors bg-white/50">
-                                <Plus size={24} />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="w-60 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden shrink-0">
-                    <div className="p-4 border-b border-slate-100 bg-slate-50">
-                        <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                            <Box size={16} className="text-purple-500" />
-                            业务对象库
-                        </h3>
-                        <p className="text-[10px] text-slate-400 mt-1">拖拽对象至画布以建立关联</p>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                        {businessObjects.map(bo => (
-                            <div key={bo.id} className="p-3 bg-white border border-slate-200 rounded shadow-sm cursor-grab hover:border-purple-300 hover:shadow-md transition-all group active:cursor-grabbing">
-                                <div className="flex items-center justify-between mb-1">
-                                    <span className="font-bold text-xs text-slate-700">{bo.name}</span>
-                                    <Link size={12} className="text-slate-300 group-hover:text-purple-500" />
-                                </div>
-                                <div className="text-[10px] text-slate-400 font-mono truncate">{bo.code}</div>
-                            </div>
-                        ))}
-                        <div className="p-2 border-t border-slate-100 mt-2">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">流程节点组件</div>
-                            <div className="grid grid-cols-2 gap-2">
-                                <div className="p-2 bg-slate-50 border border-slate-200 rounded text-center text-xs text-slate-600 hover:border-blue-400 cursor-pointer">开始</div>
-                                <div className="p-2 bg-slate-50 border border-slate-200 rounded text-center text-xs text-slate-600 hover:border-orange-400 cursor-pointer">动作</div>
-                                <div className="p-2 bg-slate-50 border border-slate-200 rounded text-center text-xs text-slate-600 hover:border-slate-400 cursor-pointer">结束</div>
-                                <div className="p-2 bg-slate-50 border border-slate-200 rounded text-center text-xs text-slate-600 hover:border-green-400 cursor-pointer">判断</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- 视图: 数据源管理 (BU-01) ---
-const DataSourceManagementView = ({ dataSources, setDataSources }) => {
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editMode, setEditMode] = useState(false);
-    const [currentId, setCurrentId] = useState(null);
-    const [testingId, setTestingId] = useState(null);
-
-    const [newDS, setNewDS] = useState({ name: '', type: 'MySQL', host: '', port: '', user: '', password: '', dbName: '' });
-
-    const handleCreate = () => {
-        if (!newDS.name) return;
-        if (editMode && currentId) {
-            setDataSources(dataSources.map(ds => ds.id === currentId ? { ...ds, ...newDS } : ds));
-        } else {
-            setDataSources([...dataSources, { id: `DS_${Date.now()}`, ...newDS, status: 'connected', lastScan: 'Never', tableCount: 0 }]);
-        }
-        setIsModalOpen(false);
-        setEditMode(false);
-    };
-
-    const handleEdit = (ds) => {
-        setNewDS({ name: ds.name, type: ds.type, host: ds.host, port: ds.port, user: '', password: '', dbName: ds.dbName || '' });
-        setEditMode(true);
-        setCurrentId(ds.id);
-        setIsModalOpen(true);
-    };
-
-    const handleDelete = (id) => {
-        if (confirm('确定要移除该数据源连接吗？')) {
-            setDataSources(dataSources.filter(d => d.id !== id));
-        }
-    };
-
-    const handleTestConnection = (id) => {
-        setTestingId(id);
-        setTimeout(() => {
-            setTestingId(null);
-            alert('连接测试成功！');
-        }, 1000);
-    };
-
-    return (
-        <div className="space-y-6 max-w-7xl mx-auto animate-fade-in relative">
-            {/* 补充统计卡片 */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-                <StatCard label="连接总数" value={dataSources.length} trend="+1" icon={Database} color="blue" />
-                <StatCard label="正常运行" value={dataSources.filter(d => d.status === 'connected').length} trend="Healthy" icon={CheckCircle} color="emerald" />
-                <StatCard label="总数据表" value={dataSources.reduce((a, b) => a + (b.tableCount || 0), 0)} trend="" icon={Table} color="purple" />
-                <StatCard label="平均延迟" value="12ms" trend="" icon={Zap} color="orange" />
-            </div>
-
-            <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-slate-800">数据源管理</h2><button onClick={() => { setEditMode(false); setNewDS({ name: '', type: 'MySQL', host: '', port: '', user: '', password: '', dbName: '' }); setIsModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg"><Plus size={16} /> 新建连接</button></div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {dataSources.map(ds => (
-                    <div key={ds.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-                        <div className="flex items-center gap-3 mb-4"><div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center font-bold text-blue-700 text-xs">{ds.type.substring(0, 2)}</div><div><div className="font-bold text-slate-800">{ds.name}</div><div className="text-xs text-emerald-600 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span>{ds.status}</div></div></div>
-                        <div className="space-y-2 text-sm text-slate-500"><div className="flex justify-between"><span>Host:</span><span>{ds.host}:{ds.port}</span></div><div className="flex justify-between"><span>Tables:</span><span>{ds.tableCount}</span></div></div>
-                        <div className="mt-4 pt-4 border-t flex justify-between items-center">
-                            <button onClick={() => handleTestConnection(ds.id)} className="text-xs font-bold text-blue-600 flex items-center gap-1">{testingId === ds.id ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />} 测试连接</button>
-                            <div className="flex gap-3">
-                                <button onClick={() => handleEdit(ds)} className="text-slate-400 hover:text-slate-600"><Edit size={14} /></button>
-                                <button onClick={() => handleDelete(ds.id)} className="text-slate-400 hover:text-red-600"><Trash2 size={14} /></button>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-            {isModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl p-6 w-full max-w-lg space-y-4">
-                        <h3 className="font-bold text-lg">{editMode ? '编辑连接' : '新建连接'}</h3>
-                        <input type="text" placeholder="连接名称" value={newDS.name} className="w-full border p-2 rounded" onChange={e => setNewDS({ ...newDS, name: e.target.value })} />
-                        <div className="grid grid-cols-2 gap-4">
-                            <input type="text" placeholder="Host" value={newDS.host} className="w-full border p-2 rounded" onChange={e => setNewDS({ ...newDS, host: e.target.value })} />
-                            <input type="text" placeholder="Port" value={newDS.port} className="w-full border p-2 rounded" onChange={e => setNewDS({ ...newDS, port: e.target.value })} />
-                        </div>
-                        <div className="flex justify-end gap-2"><button onClick={() => setIsModalOpen(false)} className="px-4 py-2">取消</button><button onClick={handleCreate} className="px-4 py-2 bg-blue-600 text-white rounded">保存</button></div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
-// --- 视图: 资产扫描 (BU-02) ---
-const AssetScanningView = ({ setActiveModule, candidates }) => {
-    const [selectedTables, setSelectedTables] = useState([]);
-    const [viewingTable, setViewingTable] = useState(null); // For details modal
-
-    // Function to check if a table is mapped to any business object
-    const getPipelineStatus = (tableName) => {
-        // 1. Check if analyzed (in candidates)
-        const isCandidate = candidates.some(c => c.sourceTable === tableName);
-        if (isCandidate) return { status: 'pending', label: '待审核', color: 'text-orange-600 bg-orange-50' };
-
-        // 2. Check if published (This would normally check against businessObjects mappings)
-        // For mock purposes, let's assume 't_pop_base_info' is published
-        if (tableName === 't_pop_base_info') return { status: 'published', label: '已发布', color: 'text-emerald-600 bg-emerald-50' };
-
-        return { status: 'unmapped', label: '未接入', color: 'text-slate-500 bg-slate-100' };
-    };
-
-    const handleGenerateCandidates = () => {
-        if (selectedTables.length === 0) {
-            alert("请先选择至少一个物理表进行分析。");
-            return;
-        }
-        alert(`正在对 ${selectedTables.length} 个表进行 AI 语义分析...`);
-        setActiveModule('bu_candidates');
-    };
-
-    return (
-        <div className="space-y-6">
-            {/* 补充统计卡片 */}
-            <div className="grid grid-cols-4 gap-6">
-                <StatCard label="已扫描资产" value="1,204" trend="+4" icon={Database} color="emerald" />
-                <StatCard label="新增物理表" value="23" trend="+5" icon={Plus} color="blue" />
-                <StatCard label="结构变更" value="12" trend="Warning" icon={GitMerge} color="orange" />
-                <StatCard label="接入率" value="45%" trend="Low" icon={PieChart} color="purple" />
-            </div>
-
-            <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-slate-800">资产扫描中心</h2><button className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2"><Scan size={16} /> 开始扫描</button></div>
-            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-                <div className="p-4 border-b flex justify-between items-center">{selectedTables.length > 0 && <button onClick={handleGenerateCandidates} className="text-xs bg-purple-600 text-white px-3 py-1.5 rounded flex items-center gap-1 animate-pulse"><Sparkles size={12} /> 为 {selectedTables.length} 个表生成候选</button>}</div>
-                <table className="w-full text-sm text-left"><thead className="bg-slate-50 border-b"><tr><th className="px-6 py-3 w-10"><input type="checkbox" /></th><th className="px-6 py-3">物理表名</th><th className="px-6 py-3">中文注释</th><th className="px-6 py-3">数据量</th><th className="px-6 py-3">流水线状态</th><th className="px-6 py-3">扫描状态</th><th className="px-6 py-3 text-right">操作</th></tr></thead>
-                    <tbody>{mockScanAssets.map(a => {
-                        const pipeline = getPipelineStatus(a.name);
-                        return (
-                            <tr key={a.id} className="border-b hover:bg-slate-50">
-                                <td className="px-6 py-4"><input type="checkbox" checked={selectedTables.includes(a.name)} onChange={() => setSelectedTables(prev => prev.includes(a.name) ? prev.filter(n => n !== a.name) : [...prev, a.name])} /></td>
-                                <td className="px-6 py-4 font-mono font-medium text-slate-700">{a.name}</td>
-                                <td className="px-6 py-4 text-slate-600">{a.comment}</td>
-                                <td className="px-6 py-4 text-slate-500 font-mono">{a.rows}</td>
-                                <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded text-xs font-medium ${pipeline.color}`}>{pipeline.label}</span></td>
-                                <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded text-xs ${a.status === 'new' ? 'bg-blue-100 text-blue-700' : a.status === 'changed' ? 'bg-orange-100 text-orange-700' : 'text-slate-500'}`}>{a.status === 'new' ? 'New' : a.status === 'changed' ? 'Changed' : 'Synced'}</span></td>
-                                <td className="px-6 py-4 text-right">
-                                    <div className="flex justify-end gap-3">
-                                        {pipeline.status === 'unmapped' && (
-                                            <button className="text-purple-600 hover:text-purple-800 text-xs font-medium flex items-center gap-1" onClick={() => { setSelectedTables([a.name]); handleGenerateCandidates(); }}>
-                                                <Sparkles size={12} /> 生成
-                                            </button>
-                                        )}
-                                        <button className="text-blue-600 hover:text-blue-800 text-xs font-medium" onClick={() => setViewingTable(a)}>详情</button>
-                                    </div>
-                                </td>
-                            </tr>
-                        )
-                    })}</tbody>
-                </table>
-            </div>
-
-            {/* Table Details Modal (Drawer) */}
-            {viewingTable && (
-                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex justify-end">
-                    <div className="w-[500px] h-full bg-white shadow-2xl animate-slide-in-right flex flex-col">
-                        <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-slate-50">
-                            <div>
-                                <h3 className="text-xl font-bold text-slate-800 mb-1">{viewingTable.name}</h3>
-                                <p className="text-sm text-slate-500">{viewingTable.comment}</p>
-                            </div>
-                            <button onClick={() => setViewingTable(null)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                            <div>
-                                <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Table size={16} /> 字段结构</h4>
-                                <div className="border border-slate-200 rounded-lg overflow-hidden">
-                                    <table className="w-full text-xs text-left">
-                                        <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">字段名</th><th className="px-3 py-2">类型</th><th className="px-3 py-2">注释</th></tr></thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {viewingTable.columns?.map((col, i) => (
-                                                <tr key={i}><td className="px-3 py-2 font-mono text-slate-700">{col.name}</td><td className="px-3 py-2 text-slate-500">{col.type}</td><td className="px-3 py-2 text-slate-600">{col.comment}</td></tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <div>
-                                <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><Activity size={16} /> 基本信息</h4>
-                                <div className="grid grid-cols-2 gap-4 text-xs">
-                                    <div className="p-3 bg-slate-50 rounded border border-slate-100"><div className="text-slate-400 mb-1">行数</div><div className="font-mono text-lg text-slate-800">{viewingTable.rows}</div></div>
-                                    <div className="p-3 bg-slate-50 rounded border border-slate-100"><div className="text-slate-400 mb-1">更新时间</div><div className="text-slate-800">{viewingTable.updateTime}</div></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
-// --- 视图: 候选生成 (BU-04) ---
-const CandidateGenerationView = ({ businessObjects, setBusinessObjects, candidates, setCandidates }) => {
-    const [viewingCandidate, setViewingCandidate] = useState(null);
-    const [editName, setEditName] = useState('');
-    const [nameError, setNameError] = useState('');
-
-    // Calculate stats for distribution bar
-    const total = candidates.length || 1;
-    const highCount = candidates.filter(c => c.confidence > 0.8).length;
-    const medCount = candidates.filter(c => c.confidence > 0.5 && c.confidence <= 0.8).length;
-    const lowCount = candidates.filter(c => c.confidence <= 0.5).length;
-    const highConfPercentage = (highCount / total) * 100;
-    const medConfPercentage = (medCount / total) * 100;
-    const lowConfPercentage = (lowCount / total) * 100;
-
-    const [minConfidence, setMinConfidence] = useState(50);
-    const [isProcessing, setIsProcessing] = useState(false);
-
-    const handleRunAI = () => {
-        setIsProcessing(true);
-        setTimeout(() => {
-            setIsProcessing(false);
-            alert('AI 分析完成，发现 2 个新候选！');
-        }, 1500);
-    };
-
-    const checkNameConflict = (name) => businessObjects.some(bo => bo.name === name);
-    const openCandidateDetail = (candidate) => { setViewingCandidate(candidate); setEditName(candidate.suggestedName); setNameError(checkNameConflict(candidate.suggestedName) ? '名称已存在，请修改' : ''); };
-    const handleNameChange = (newName) => { setEditName(newName); setNameError(checkNameConflict(newName) ? '名称已存在' : ''); };
-
-    const handleConfirmAccept = () => {
-        if (!viewingCandidate || nameError) return;
-        const newBO = { id: `BO_${Date.now()}`, name: editName, code: `biz_${viewingCandidate.sourceTable.replace('t_', '')}`, domain: 'AI', owner: '待认领', status: 'draft', version: 'v0.1', description: 'AI生成', fields: viewingCandidate.previewFields.map((f, i) => ({ id: `f_${i}`, name: f.attr, code: f.col, type: 'String', length: '-', required: false, desc: 'AI 自动映射' })) };
-        setBusinessObjects([...businessObjects, newBO]);
-        setCandidates(candidates.filter(c => c.id !== viewingCandidate.id));
-        setViewingCandidate(null);
-        alert(`成功创建业务对象：${newBO.name}`);
-    };
-    const handleReject = (id) => { setCandidates(candidates.filter(c => c.id !== id)); setViewingCandidate(null); };
-
-    const handleBatchAccept = () => {
-        const highConfCandidates = candidates.filter(c => c.confidence * 100 >= 80);
-        // Filter out conflicts from batch
-        const validCandidates = highConfCandidates.filter(c => !checkNameConflict(c.suggestedName));
-        const conflicts = highConfCandidates.filter(c => checkNameConflict(c.suggestedName));
-
-        if (validCandidates.length === 0 && conflicts.length === 0) {
-            alert('没有置信度 > 80% 的候选对象');
-            return;
-        }
-
-        if (conflicts.length > 0) {
-            alert(`检测到 ${conflicts.length} 个高置信度候选存在命名冲突，无法自动批量采纳。请手动处理。`);
-            if (validCandidates.length === 0) return;
-        }
-
-        if (confirm(`确定批量采纳 ${validCandidates.length} 个无冲突的候选吗？`)) {
-            const newBOs = validCandidates.map(c => ({
-                id: `BO_${Date.now()}_${c.id}`,
-                name: c.suggestedName,
-                code: `biz_${c.sourceTable}`,
-                domain: '批量导入',
-                owner: '系统',
-                status: 'draft',
-                version: 'v0.1',
-                description: '批量采纳',
-                fields: []
-            }));
-
-            setBusinessObjects([...businessObjects, ...newBOs]);
-            setCandidates(candidates.filter(c => !validCandidates.find(vc => vc.id === c.id)));
-            alert('批量处理完成');
-        }
-    };
-
-    const filteredCandidates = candidates.filter(c => (c.confidence * 100) >= minConfidence);
-
-    return (
-        <div className="space-y-6">
-            {/* 补充统计卡片 */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <StatCard label="待处理候选" value={candidates.length} trend="+2" icon={Sparkles} color="purple" />
-                <StatCard label="高置信度" value={candidates.filter(c => c.confidence > 0.8).length} trend="High" icon={CheckCircle} color="emerald" />
-                <StatCard label="已忽略" value={3} trend="" icon={XCircle} color="red" />
-                <StatCard label="AI 模型" value="v2.1" trend="Stable" icon={Cpu} color="blue" />
-            </div>
-
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                        <Sparkles className="text-purple-500" /> 智能候选生成
-                    </h2>
-                </div>
-                <div className="flex gap-3">
-                    <button
-                        onClick={handleBatchAccept}
-                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors shadow-sm"
-                    >
-                        <CheckSquare size={16} /> 批量采纳高置信度
-                    </button>
-                    <button
-                        onClick={handleRunAI}
-                        disabled={isProcessing}
-                        className={`flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors shadow-sm shadow-purple-200 ${isProcessing ? 'opacity-70 cursor-not-allowed' : ''}`}
-                    >
-                        {isProcessing ? <RefreshCw size={16} className="animate-spin" /> : <Cpu size={16} />}
-                        {isProcessing ? 'AI 分析中...' : '运行 AI 识别'}
-                    </button>
-                </div>
-            </div>
-
-            {/* Visual Confidence Distribution Filter */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-4">
-                <div>
-                    <div className="flex justify-between items-end mb-2">
-                        <div className="flex items-center gap-2 text-sm text-slate-600">
-                            <Sliders size={16} />
-                            <span className="font-medium">置信度分布与过滤:</span>
-                        </div>
-                        <div className="text-xs text-slate-400">
-                            当前过滤: {minConfidence}%+ (显示 {filteredCandidates.length} / {candidates.length} 个)
-                        </div>
-                    </div>
-
-                    {/* Distribution Bar */}
-                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex mb-4">
-                        <div style={{ width: `${highConfPercentage}%` }} className="h-full bg-emerald-500" title="High (>80%)"></div>
-                        <div style={{ width: `${medConfPercentage}%` }} className="h-full bg-orange-400" title="Medium (50-80%)"></div>
-                        <div style={{ width: `${lowConfPercentage}%` }} className="h-full bg-red-400" title="Low (<50%)"></div>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                    <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={minConfidence}
-                        onChange={(e) => setMinConfidence(parseInt(e.target.value))}
-                        className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-                    />
-                    <span className="text-sm font-bold text-purple-700 min-w-[3rem] text-right">{minConfidence}%</span>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-6">{filteredCandidates.map(c => {
-                const isConflict = checkNameConflict(c.suggestedName);
-                return (
-                    <div key={c.id} className={`bg-white p-5 rounded-xl border shadow-sm ${isConflict ? 'border-orange-300' : 'border-purple-100'}`}>
-                        <div className="flex justify-between mb-2"><span className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs font-bold">{c.sourceTable}</span><span className="text-emerald-600 font-bold text-xs">{c.confidence * 100}%</span></div>
-                        <h3 className="font-bold text-lg mb-2 truncate" title={c.suggestedName}>{c.suggestedName}</h3>
-                        {isConflict && <div className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded mb-2 flex items-center gap-1"><AlertTriangle size={12} /> 名称冲突，需人工介入</div>}
-                        <p className="text-xs text-slate-500 mb-4 h-10 overflow-hidden">{c.reason}</p>
-                        <div className="flex gap-2">
-                            <button onClick={() => openCandidateDetail(c)} className="flex-1 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm">审核</button>
-                            {!isConflict && <button onClick={() => { setViewingCandidate(c); setEditName(c.suggestedName); handleConfirmAccept(); }} className="flex-1 py-2 bg-purple-600 text-white rounded-lg text-sm">采纳</button>}
-                        </div>
-                    </div>
-                )
-            })}</div>
-            {viewingCandidate && (
-                <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl w-full max-w-3xl overflow-hidden animate-fade-in-up flex flex-col max-h-[90vh]">
-                        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h3 className="font-bold text-lg text-slate-800">候选详情审核</h3><button onClick={() => setViewingCandidate(null)}><X size={20} /></button></div>
-                        <div className="p-6 overflow-y-auto flex-1 flex gap-6">
-
-                            {/* Left Column: Form & Table */}
-                            <div className="flex-1 space-y-6">
-                                <div className="flex gap-4 items-end">
-                                    <div className="flex-1">
-                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">物理源表</label>
-                                        <div className="p-2 bg-slate-50 border rounded text-sm font-mono text-slate-600">{viewingCandidate.sourceTable}</div>
-                                    </div>
-                                    <ArrowRight className="mb-2 text-purple-300" />
-                                    <div className="flex-1">
-                                        <label className="block text-xs font-bold text-purple-600 uppercase mb-1">建议业务对象名称</label>
-                                        <input type="text" value={editName} onChange={(e) => handleNameChange(e.target.value)} className={`w-full border p-2 rounded text-sm font-bold text-slate-800 ${nameError ? 'border-red-500 bg-red-50' : 'border-purple-300'}`} />
-                                        {nameError && <div className="text-red-500 text-xs mt-1">{nameError}</div>}
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <h4 className="font-bold text-sm text-slate-700 mb-2">字段映射预览</h4>
-                                    <div className="border border-slate-200 rounded-lg overflow-hidden">
-                                        <table className="w-full text-sm text-left">
-                                            <thead className="bg-slate-50 text-slate-500 font-medium text-xs uppercase">
-                                                <tr><th className="px-3 py-2">物理字段</th><th className="px-3 py-2">推测属性</th><th className="px-3 py-2">置信度</th></tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100">
-                                                {viewingCandidate.previewFields.map((f, i) => (
-                                                    <tr key={i}><td className="px-3 py-2 font-mono text-slate-600">{f.col}</td><td className="px-3 py-2 font-medium">{f.attr}</td><td className="px-3 py-2 text-xs">{f.conf}</td></tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Right Column: AI Analysis Report */}
-                            <div className="w-64 bg-slate-50 p-4 rounded-lg border border-slate-200 h-fit">
-                                <h4 className="font-bold text-sm text-slate-700 mb-4 flex items-center gap-2"><BrainCircuit size={16} className="text-purple-500" /> AI 置信度分析报告</h4>
-
-                                <div className="space-y-4">
-                                    <div>
-                                        <div className="flex justify-between text-xs mb-1"><span className="text-slate-500">综合置信度</span><span className="font-bold text-emerald-600">{(viewingCandidate.confidence * 100).toFixed(0)}%</span></div>
-                                        <div className="h-2 bg-slate-200 rounded-full overflow-hidden"><div style={{ width: `${viewingCandidate.confidence * 100}%` }} className="h-full bg-emerald-500"></div></div>
-                                    </div>
-
-                                    <div className="pt-2 border-t border-slate-200 space-y-3">
-                                        <ScoreBar label="表名语义匹配" score={viewingCandidate.scores?.nameMatch || 0} />
-                                        <ScoreBar label="字段重合度" score={viewingCandidate.scores?.fieldMatch || 0} />
-                                        <ScoreBar label="数据内容采样" score={viewingCandidate.scores?.dataSample || 0} />
-                                    </div>
-
-                                    <div className="bg-white p-3 rounded border border-slate-200 text-xs text-slate-500 leading-relaxed">
-                                        <strong>AI 建议：</strong><br />
-                                        {viewingCandidate.reason}
-                                    </div>
-                                </div>
-                            </div>
-
-                        </div>
-                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
-                            <button onClick={() => handleReject(viewingCandidate.id)} className="text-red-600 text-sm hover:underline">拒绝并忽略</button>
-                            <div className="flex gap-2">
-                                <button onClick={() => setViewingCandidate(null)} className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded">取消</button>
-                                <button onClick={handleConfirmAccept} disabled={!!nameError} className={`px-4 py-2 text-white rounded flex items-center gap-2 ${nameError ? 'bg-purple-300' : 'bg-purple-600'}`}><CheckCircle size={16} /> 确认创建</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
-// --- 视图: 冲突检测 ---
-const ConflictDetectionView = ({ setActiveModule }) => {
-    const [conflicts, setConflicts] = useState(mockConflicts);
-    return (
-        <div className="space-y-6">
-            {/* 补充统计卡片 (已有，保持) */}
-            <div className="grid grid-cols-4 gap-6">
-                <StatCard label="待解决冲突" value={conflicts.length.toString()} trend="Critical" icon={AlertTriangle} color="red" />
-                <StatCard label="高风险项" value={conflicts.filter(c => c.severity === 'High').length} trend="" icon={FileWarning} color="orange" />
-                <StatCard label="已忽略" value={15} trend="" icon={XCircle} color="purple" />
-                <StatCard label="健康度" value="88%" trend="Good" icon={CheckCircle} color="emerald" />
-            </div>
-            <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-slate-800">冲突检测与治理</h2><button className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-700 flex items-center gap-2"><RefreshCw size={16} /> 重新检测</button></div>
-            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-                {conflicts.map(c => (
-                    <div key={c.id} className="p-6 border-b border-slate-100 flex justify-between">
-                        <div><div className="flex items-center gap-2 mb-1"><span className="text-red-600 font-bold text-xs border border-red-200 px-1 rounded">{c.severity}</span><h4 className="font-bold text-sm">{c.title}</h4></div><p className="text-sm text-slate-600">{c.desc}</p></div>
-                        <button onClick={() => setActiveModule('mapping')} className="text-purple-600 text-sm font-bold hover:underline">去修复</button>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-};
-
-// --- 视图: 映射工作台 ---
-const MappingStudioView = ({ selectedBO }) => (
-    <div className="h-full flex flex-col gap-6">
-        {/* 补充统计卡片 */}
-        <div className="grid grid-cols-4 gap-6 shrink-0">
-            <StatCard label="总字段" value={selectedBO?.fields.length || 0} trend="" icon={List} color="blue" />
-            <StatCard label="已映射" value={mockMappings.length} trend="Good" icon={Link} color="emerald" />
-            <StatCard label="未映射" value={(selectedBO?.fields.length || 0) - mockMappings.length} trend="Warning" icon={AlertCircle} color="orange" />
-            <StatCard label="映射覆盖率" value={`${Math.round((mockMappings.length / (selectedBO?.fields.length || 1)) * 100)}%`} trend="" icon={PieChart} color="purple" />
-        </div>
-
-        <div className="bg-white border-b p-4"><h2 className="font-bold text-slate-800">语义映射工作台</h2></div>
-        <div className="flex-1 bg-slate-100 p-6 flex gap-8">
-            <div className="flex-1 bg-white rounded-lg border p-4">
-                <h3 className="font-bold text-blue-900 mb-4">{selectedBO?.name || '选择对象'}</h3>
-                {selectedBO?.fields.map(f => <div key={f.id} className="p-2 border mb-2 rounded flex justify-between"><span>{f.name}</span><div className="w-2 h-2 bg-blue-500 rounded-full"></div></div>)}
-            </div>
-            <div className="w-1/3 bg-white rounded-lg border p-4"><h3 className="font-bold text-slate-500 mb-4 text-center">映射关系</h3>{mockMappings.map((m, i) => <div key={i} className="flex justify-between text-sm p-2 border-b"><span>{m.boField}</span><Link size={12} /><span>{m.tblField}</span></div>)}</div>
-            <div className="flex-1 bg-white rounded-lg border p-4"><h3 className="font-bold text-emerald-900 mb-4">{mockPhysicalTables[0].name}</h3>{mockPhysicalTables[0].fields.map((f, i) => <div key={i} className="p-2 border mb-2 rounded flex justify-between"><div className="w-2 h-2 bg-emerald-500 rounded-full"></div><span>{f.name}</span></div>)}</div>
+            ))}
         </div>
     </div>
 );
 
-// --- 视图: 统一元数据 (Catalog) ---
-const DataCatalogView = () => {
-    return (
-        <div className="space-y-6">
-            {/* 补充统计卡片 */}
-            <div className="grid grid-cols-4 gap-6">
-                <StatCard label="资产总数" value={mockCatalogAssets.length} trend="+4" icon={Book} color="blue" />
-                <StatCard label="业务对象" value={mockCatalogAssets.filter(a => a.type === 'Business Object').length} trend="" icon={Box} color="purple" />
-                <StatCard label="物理表" value={mockCatalogAssets.filter(a => a.type === 'Physical Table').length} trend="" icon={Table} color="emerald" />
-                <StatCard label="平均质量分" value="94" trend="High" icon={Star} color="orange" />
-            </div>
-
-            <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-slate-800">统一元数据目录</h2><button className="px-4 py-2 bg-blue-600 text-white rounded-lg"><Plus size={16} /> 注册资产</button></div>
-            <div className="grid grid-cols-2 gap-6">{mockCatalogAssets.map(a => (
-                <div key={a.id} className="bg-white p-6 rounded-xl border shadow-sm">
-                    <div className="flex justify-between mb-4"><div className="flex items-center gap-3"><div className={`p-3 rounded-lg ${a.type === 'Business Object' ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600'}`}>{a.type === 'Business Object' ? <Box size={24} /> : <Database size={24} />}</div><div><h3 className="font-bold text-lg">{a.name}</h3><p className="text-xs text-slate-400">{a.code}</p></div></div><span className="text-xs font-bold border px-2 py-1 rounded">QS: {a.quality}</span></div>
-                    <div className="space-y-2 text-sm text-slate-600"><div>负责人: {a.owner}</div><div className="flex gap-1">{a.tags.map(t => <span key={t} className="bg-slate-100 px-1.5 rounded text-xs">{t}</span>)}</div></div>
-                </div>
-            ))}</div>
+const DataSourceManagementView = ({ dataSources }) => (
+    <div className="space-y-6">
+        <div className="flex justify-between items-center">
+             <h2 className="text-2xl font-bold text-slate-800">数据源管理</h2>
+             <button className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">新建连接</button>
         </div>
-    );
-};
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {dataSources.map(ds => (
+                <div key={ds.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+                    <div className={`absolute top-0 left-0 w-1 h-full ${ds.status === 'connected' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                    <h3 className="font-bold text-lg mb-1">{ds.name}</h3>
+                    <div className="text-xs text-slate-400 font-mono mb-4">{ds.type} • {ds.host}</div>
+                    <div className="flex justify-between items-center text-sm text-slate-500">
+                        <span>{ds.dbName}</span>
+                        <span>{ds.tableCount} tables</span>
+                    </div>
+                </div>
+            ))}
+        </div>
+    </div>
+);
 
-// --- 视图: API 网关 ---
+const AssetScanningView = ({ candidates }) => (
+    <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-slate-800">资产扫描</h2>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <table className="w-full text-sm text-left">
+                <thead className="bg-slate-50 text-slate-500 font-medium">
+                    <tr>
+                        <th className="px-6 py-3">资产名称</th>
+                        <th className="px-6 py-3">类型</th>
+                        <th className="px-6 py-3">数据量</th>
+                        <th className="px-6 py-3">最后更新</th>
+                        <th className="px-6 py-3">状态</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                    {mockScanAssets.map(asset => (
+                        <tr key={asset.id} className="hover:bg-slate-50">
+                            <td className="px-6 py-4 font-medium text-slate-700">{asset.name}</td>
+                            <td className="px-6 py-4 text-slate-500">Physical Table</td>
+                            <td className="px-6 py-4 text-slate-500">{asset.rows}</td>
+                            <td className="px-6 py-4 text-slate-500">{asset.updateTime}</td>
+                            <td className="px-6 py-4"><span className="px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs">{asset.status}</span></td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    </div>
+);
+
+const CandidateGenerationView = ({ candidates }) => (
+    <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-slate-800">候选生成 (AI Recommendations)</h2>
+        <div className="grid grid-cols-1 gap-4">
+            {candidates.map(candidate => (
+                <div key={candidate.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex justify-between items-start">
+                    <div>
+                        <div className="flex items-center gap-2 mb-2">
+                            <h3 className="font-bold text-lg text-slate-800">{candidate.suggestedName}</h3>
+                            <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">From: {candidate.sourceTable}</span>
+                        </div>
+                        <p className="text-slate-600 text-sm mb-3">{candidate.reason}</p>
+                        <div className="flex gap-4">
+                            <ScoreBar label="名称匹配" score={candidate.scores.nameMatch} />
+                            <ScoreBar label="字段匹配" score={candidate.scores.fieldMatch} />
+                        </div>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                         <button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm shadow-sm">采纳建议</button>
+                         <button className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm">忽略</button>
+                    </div>
+                </div>
+            ))}
+        </div>
+    </div>
+);
+
+const MappingStudioView = () => (
+    <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-slate-800">映射工作台</h2>
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+             <div className="flex justify-between items-center mb-6">
+                 <div className="w-1/3 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                     <div className="font-bold text-blue-900 mb-2">业务对象: 新生儿</div>
+                     <div className="space-y-2">
+                         {mockBusinessObjects[0].fields.map(f => (
+                             <div key={f.id} className="text-sm p-2 bg-white rounded border border-blue-200 flex justify-between">
+                                 <span>{f.name}</span>
+                                 <span className="text-xs text-slate-400">{f.type}</span>
+                             </div>
+                         ))}
+                     </div>
+                 </div>
+                 <div className="text-slate-400"><GitMerge size={32} /></div>
+                 <div className="w-1/3 p-4 bg-emerald-50 rounded-lg border border-emerald-100">
+                     <div className="font-bold text-emerald-900 mb-2">物理表: t_pop_base_info</div>
+                     <div className="space-y-2">
+                         {mockPhysicalTables[0].fields.map(f => (
+                             <div key={f.name} className="text-sm p-2 bg-white rounded border border-emerald-200 flex justify-between">
+                                 <span>{f.name}</span>
+                                 <span className="text-xs text-slate-400">{f.type}</span>
+                             </div>
+                         ))}
+                     </div>
+                 </div>
+             </div>
+        </div>
+    </div>
+);
+
+const ConflictDetectionView = () => (
+    <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-slate-800">冲突检测</h2>
+        <div className="space-y-4">
+            {mockConflicts.map(conflict => (
+                <div key={conflict.id} className="bg-white p-4 rounded-xl border border-l-4 border-slate-200 shadow-sm flex items-start gap-4" style={{borderLeftColor: conflict.severity === 'High' ? '#ef4444' : '#f97316'}}>
+                    <div className="mt-1 text-slate-500"><AlertTriangle size={20} /></div>
+                    <div>
+                        <h3 className="font-bold text-slate-800">{conflict.title}</h3>
+                        <p className="text-sm text-slate-600 mt-1">{conflict.desc}</p>
+                        <div className="mt-2 flex gap-2 text-xs">
+                            <span className="bg-slate-100 px-2 py-1 rounded">Object: {conflict.objectName}</span>
+                            <span className="bg-slate-100 px-2 py-1 rounded">Asset: {conflict.assetName}</span>
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    </div>
+);
+
+const DataCatalogView = () => (
+    <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-slate-800">统一元数据目录</h2>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+             <table className="w-full text-sm text-left">
+                <thead className="bg-slate-50 text-slate-500 font-medium">
+                    <tr>
+                        <th className="px-6 py-3">名称</th>
+                        <th className="px-6 py-3">类型</th>
+                        <th className="px-6 py-3">所有者</th>
+                        <th className="px-6 py-3">质量分</th>
+                        <th className="px-6 py-3">状态</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                    {mockCatalogAssets.map(asset => (
+                        <tr key={asset.id} className="hover:bg-slate-50">
+                            <td className="px-6 py-4 font-medium text-slate-700">
+                                <div>{asset.name}</div>
+                                <div className="text-xs text-slate-400">{asset.code}</div>
+                            </td>
+                            <td className="px-6 py-4 text-slate-500">{asset.type}</td>
+                            <td className="px-6 py-4 text-slate-500">{asset.owner}</td>
+                            <td className="px-6 py-4 text-slate-500">{asset.quality}</td>
+                            <td className="px-6 py-4"><span className="px-2 py-1 bg-green-50 text-green-600 rounded text-xs">{asset.status}</span></td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    </div>
+);
+
+const DataLineageView = () => (
+    <div className="h-full flex flex-col">
+        <h2 className="text-2xl font-bold text-slate-800 mb-6">全链路血缘</h2>
+        <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm flex items-center justify-center p-10">
+            <div className="flex items-center gap-8">
+                {mockLineage.nodes.map((node, i) => (
+                    <React.Fragment key={node.id}>
+                        <div className="flex flex-col items-center gap-2">
+                             <div className={`w-16 h-16 rounded-full flex items-center justify-center text-white ${
+                                 node.type === 'source' ? 'bg-slate-500' : 
+                                 node.type === 'table' ? 'bg-emerald-500' :
+                                 node.type === 'object' ? 'bg-blue-500' : 'bg-purple-500'
+                             }`}>
+                                 {node.type === 'source' && <Server size={24} />}
+                                 {node.type === 'table' && <Database size={24} />}
+                                 {node.type === 'object' && <Box size={24} />}
+                                 {node.type === 'api' && <Globe size={24} />}
+                             </div>
+                             <div className="text-xs text-center font-medium text-slate-600 w-24">{node.label}</div>
+                        </div>
+                        {i < mockLineage.nodes.length - 1 && (
+                            <div className="h-px bg-slate-300 w-16"></div>
+                        )}
+                    </React.Fragment>
+                ))}
+            </div>
+        </div>
+    </div>
+);
+
 const ApiGatewayView = () => (
     <div className="space-y-6">
-        <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-slate-800">API 服务网关</h2><button className="px-4 py-2 bg-blue-600 text-white rounded-lg"><Plus size={16} /> 发布服务</button></div>
-        <div className="grid grid-cols-4 gap-6"><StatCard label="在线 API" value={mockApiServices.length.toString()} trend="+1" icon={Globe} color="blue" /></div>
-        <div className="bg-white border rounded-xl overflow-hidden"><table className="w-full text-sm text-left"><thead className="bg-slate-50 border-b"><tr><th className="px-6 py-3">服务名称</th><th className="px-6 py-3">Method</th><th className="px-6 py-3">路径</th><th className="px-6 py-3">状态</th></tr></thead><tbody>{mockApiServices.map(api => <tr key={api.id} className="border-b"><td className="px-6 py-4 font-bold">{api.name}</td><td className="px-6 py-4"><span className="bg-blue-100 text-blue-700 px-2 rounded text-xs">{api.method}</span></td><td className="px-6 py-4 font-mono">{api.path}</td><td className="px-6 py-4"><span className="text-emerald-600 font-bold text-xs">{api.status}</span></td></tr>)}</tbody></table></div>
+        <h2 className="text-2xl font-bold text-slate-800">API 网关</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {mockApiServices.map(api => (
+                <div key={api.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="flex justify-between items-start mb-4">
+                        <div className={`px-2 py-1 text-xs font-bold rounded ${api.method === 'GET' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{api.method}</div>
+                        <div className={`w-2 h-2 rounded-full ${api.status === 'Online' ? 'bg-green-500' : 'bg-slate-300'}`}></div>
+                    </div>
+                    <h3 className="font-bold text-slate-800 truncate" title={api.name}>{api.name}</h3>
+                    <div className="text-xs text-slate-500 font-mono mb-4 truncate">{api.path}</div>
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs border-t border-slate-100 pt-4">
+                        <div>
+                            <div className="text-slate-400">QPS</div>
+                            <div className="font-bold">{api.qps}</div>
+                        </div>
+                        <div>
+                            <div className="text-slate-400">Latency</div>
+                            <div className="font-bold">{api.latency}</div>
+                        </div>
+                        <div>
+                            <div className="text-slate-400">Errors</div>
+                            <div className="font-bold">{api.errorRate}</div>
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
     </div>
 );
 
-// --- 视图: 缓存策略 ---
 const CacheStrategyView = () => (
     <div className="space-y-6">
-        <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-slate-800">缓存策略管理</h2><button className="px-4 py-2 bg-blue-600 text-white rounded-lg"><Plus size={16} /> 新增策略</button></div>
-        <div className="grid grid-cols-4 gap-6"><StatCard label="缓存命中率" value="94.5%" trend="+2%" icon={Zap} color="emerald" /></div>
-        <div className="bg-white border rounded-xl overflow-hidden"><table className="w-full text-sm text-left"><thead className="bg-slate-50 border-b"><tr><th className="px-6 py-3">策略名称</th><th className="px-6 py-3">对象</th><th className="px-6 py-3">TTL</th><th className="px-6 py-3">状态</th></tr></thead><tbody>{mockCachePolicies.map(p => <tr key={p.id} className="border-b"><td className="px-6 py-4 font-bold">{p.name}</td><td className="px-6 py-4 font-mono">{p.target}</td><td className="px-6 py-4">{p.ttl}</td><td className="px-6 py-4"><span className="text-emerald-600 text-xs font-bold">{p.status}</span></td></tr>)}</tbody></table></div>
+        <h2 className="text-2xl font-bold text-slate-800">缓存策略</h2>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+             <table className="w-full text-sm text-left">
+                <thead className="bg-slate-50 text-slate-500 font-medium">
+                    <tr>
+                        <th className="px-6 py-3">策略名称</th>
+                        <th className="px-6 py-3">目标对象</th>
+                        <th className="px-6 py-3">类型</th>
+                        <th className="px-6 py-3">TTL</th>
+                        <th className="px-6 py-3">淘汰策略</th>
+                        <th className="px-6 py-3">状态</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                    {mockCachePolicies.map(cp => (
+                        <tr key={cp.id} className="hover:bg-slate-50">
+                            <td className="px-6 py-4 font-medium text-slate-700">{cp.name}</td>
+                            <td className="px-6 py-4 text-slate-500">{cp.target}</td>
+                            <td className="px-6 py-4 text-slate-500">{cp.type}</td>
+                            <td className="px-6 py-4 text-slate-500">{cp.ttl}</td>
+                            <td className="px-6 py-4 text-slate-500">{cp.eviction}</td>
+                            <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs ${cp.status === 'Active' ? 'bg-green-50 text-green-600' : 'bg-slate-100 text-slate-500'}`}>{cp.status}</span></td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
     </div>
 );
-
-// --- 视图: 全链路血缘 ---
-const DataLineageView = () => (
-    <div className="h-full flex flex-col gap-6">
-        {/* 补充统计卡片 */}
-        <div className="grid grid-cols-4 gap-6 shrink-0">
-            <StatCard label="总节点数" value="5" trend="" icon={Network} color="blue" />
-            <StatCard label="引用深度" value="4" trend="" icon={Layers} color="purple" />
-            <StatCard label="孤立节点" value="0" trend="Healthy" icon={XCircle} color="emerald" />
-            <StatCard label="引用热度" value="High" trend="" icon={Activity} color="orange" />
-        </div>
-
-        <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><GitBranch className="text-purple-500" /> 全链路血缘分析</h2><button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm"><Network size={16} /> 影响分析</button></div>
-        <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-inner flex items-center justify-center p-8 bg-[url('https://www.transparenttextures.com/patterns/graphy.png')]">
-            <div className="flex gap-16 items-center">
-                <div className="w-48 p-4 bg-slate-50 border-2 border-slate-300 rounded-lg shadow-sm flex flex-col gap-2 relative"><div className="text-xs text-slate-400 font-bold uppercase">Data Source</div><div className="font-bold text-slate-800 flex items-center gap-2"><Database size={16} className="text-blue-500" /> 卫健委_前置库</div><ArrowRight size={16} className="absolute -right-[40px] top-1/2 -translate-y-1/2 text-slate-300" /></div>
-                <div className="w-48 p-4 bg-emerald-50 border-2 border-emerald-200 rounded-lg shadow-sm flex flex-col gap-2 relative"><div className="text-xs text-emerald-600 font-bold uppercase">Physical Table</div><div className="font-bold text-emerald-900 flex items-center gap-2"><Table size={16} /> t_pop_base_info</div><ArrowRight size={16} className="absolute -right-[40px] top-1/2 -translate-y-1/2 text-slate-300" /></div>
-                <div className="w-48 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg shadow-sm flex flex-col gap-2 relative"><div className="text-xs text-blue-600 font-bold uppercase">Business Object</div><div className="font-bold text-blue-900 flex items-center gap-2"><Box size={16} /> 新生儿</div><ArrowRight size={16} className="absolute -right-[40px] top-1/2 -translate-y-1/2 text-slate-300" /></div>
-                <div className="w-56 p-4 bg-purple-50 border-2 border-purple-200 rounded-lg shadow-sm flex flex-col gap-2"><div className="text-xs text-purple-600 font-bold uppercase">API Service</div><div className="font-bold text-purple-900 flex items-center gap-2 text-sm"><Server size={14} /> 查询新生儿详情</div></div>
-            </div>
-        </div>
-    </div>
-);
-
-const TechDiscoveryView = () => (<div className="flex flex-col items-center justify-center h-full text-slate-400"><Database size={64} className="mb-4" /><p>数据发现中心 (BU-02)</p></div>);
 
 // ==========================================
 // 4. 主应用程序
@@ -2190,6 +1967,7 @@ export default function SemanticLayerApp() {
             case 'td_scenario': return <ScenarioOrchestrationView businessObjects={businessObjects} />;
             case 'bu_connect': return <DataSourceManagementView dataSources={dataSources} setDataSources={setDataSources} />;
             case 'bu_discovery': return <AssetScanningView setActiveModule={setActiveModule} candidates={candidates} />;
+            case 'bu_semantics': return <DataSemanticUnderstandingView />;
             case 'bu_candidates': return <CandidateGenerationView businessObjects={businessObjects} setBusinessObjects={setBusinessObjects} candidates={candidates} setCandidates={setCandidates} />;
             case 'mapping': return <MappingStudioView selectedBO={selectedBO} />;
             case 'governance': return <ConflictDetectionView setActiveModule={setActiveModule} />;
