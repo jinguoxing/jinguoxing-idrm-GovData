@@ -11,7 +11,8 @@ import {
     Sliders, CheckSquare, XCircle, AlertTriangle, FileWarning, Hammer,
     Book, Tag, User, Clock, Star, Terminal, Globe, Copy,
     Thermometer, Timer, BarChart3, Eraser, GitBranch, Network,
-    BrainCircuit, Gauge, FileDigit, List, Bot, Send, MessageSquare, BadgeCheck
+    BrainCircuit, Gauge, FileDigit, List, Bot, Send, MessageSquare, BadgeCheck,
+    ChevronDown, ChevronUp, GripVertical
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
@@ -1139,40 +1140,183 @@ const DashboardView = ({ setActiveModule }) => (
     </div>
 );
 
-// --- Missing Views Implementation ---
+const CandidateGenerationView = ({ candidates, setCandidates, setBusinessObjects, setActiveModule, setSelectedBO }) => {
+    const [expandedId, setExpandedId] = useState(null);
+
+    const toggleExpand = (id) => {
+        setExpandedId(expandedId === id ? null : id);
+    };
+
+    const handleAdopt = (cand) => {
+        // Create new Business Object from Candidate
+        const newBO = {
+            id: `BO_${Date.now()}`,
+            name: cand.suggestedName,
+            code: `biz_${cand.sourceTable.replace(/^t_/, '')}`,
+            domain: 'AI Discovered',
+            owner: 'System',
+            status: 'draft',
+            version: 'v0.1',
+            description: cand.reason,
+            sourceTables: [cand.sourceTable],
+            fields: cand.previewFields ? cand.previewFields.map((pf, idx) => ({
+                id: `f_${Date.now()}_${idx}`,
+                name: pf.attr,
+                code: pf.col,
+                type: pf.type.includes('int') ? 'Integer' : pf.type.includes('date') ? 'DateTime' : 'String',
+                length: '-',
+                required: false,
+                desc: 'Auto-generated from ' + pf.col
+            })) : []
+        };
+
+        // Update state
+        setBusinessObjects(prev => [newBO, ...prev]);
+        setCandidates(prev => prev.filter(c => c.id !== cand.id));
+        
+        // Navigation
+        setSelectedBO(newBO);
+        setActiveModule('td_modeling');
+        
+        // Optional: Notify user
+        // alert(`已采纳 ${cand.suggestedName}，正在跳转至建模视图...`);
+    };
+
+    return (
+        <div className="space-y-6 animate-fade-in">
+            <div className="flex justify-between items-center">
+                <div>
+                    <h2 className="text-2xl font-bold text-slate-800">候选生成 (Candidates)</h2>
+                    <p className="text-sm text-slate-500 mt-1">AI 推荐的潜在业务对象。</p>
+                </div>
+            </div>
+            <div className="grid grid-cols-1 gap-6">
+                {candidates.length === 0 ? (
+                    <div className="text-center py-12 bg-white rounded-xl border border-slate-200 border-dashed text-slate-400">
+                        <Sparkles size={48} className="mx-auto mb-4 opacity-50" />
+                        <p>暂无新的候选对象</p>
+                    </div>
+                ) : candidates.map(cand => (
+                    <div key={cand.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-4 transition-all hover:shadow-md">
+                        <div className="flex flex-col md:flex-row gap-6">
+                            <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <h3 className="text-lg font-bold text-slate-800">{cand.suggestedName}</h3>
+                                    <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-bold rounded-full">{Math.round(cand.confidence * 100)}% Match</span>
+                                </div>
+                                <p className="text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-lg border border-slate-100">{cand.reason}</p>
+                                <div className="flex gap-4 text-sm text-slate-500 mb-4">
+                                     <div>来源表: <span className="font-mono text-slate-700 bg-slate-100 px-1 rounded">{cand.sourceTable}</span></div>
+                                     <div>映射字段: <span className="font-bold text-slate-700">{cand.mappedFields}</span></div>
+                                </div>
+                                 <div className="flex gap-2">
+                                     <button 
+                                        onClick={() => handleAdopt(cand)}
+                                        className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 shadow-sm shadow-blue-100 flex items-center gap-2"
+                                     >
+                                         <Plus size={14} /> 采纳并编辑
+                                     </button>
+                                     <button className="px-3 py-2 border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50">忽略</button>
+                                     <button
+                                        onClick={() => toggleExpand(cand.id)}
+                                        className="px-3 py-2 border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 flex items-center gap-1 ml-auto md:ml-0"
+                                     >
+                                        {expandedId === cand.id ? '收起详情' : '查看详情'}
+                                        {expandedId === cand.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                     </button>
+                                 </div>
+                            </div>
+                            <div className="w-full md:w-64 border-l border-slate-100 pl-6 space-y-3 hidden md:block">
+                                 <ScoreBar label="名称匹配" score={cand.scores.nameMatch} />
+                                 <ScoreBar label="字段匹配" score={cand.scores.fieldMatch} />
+                                 <ScoreBar label="数据采样" score={cand.scores.dataSample} />
+                            </div>
+                        </div>
+
+                        {expandedId === cand.id && (
+                            <div className="mt-4 pt-4 border-t border-slate-100 animate-fade-in">
+                                <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                                    <Sparkles size={14} className="text-purple-500"/> AI 详细分析报告
+                                </h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <h5 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">字段映射预览</h5>
+                                        <div className="bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
+                                            <table className="w-full text-xs text-left">
+                                                <thead className="bg-slate-100 text-slate-500 font-medium">
+                                                    <tr>
+                                                        <th className="px-3 py-2">物理字段</th>
+                                                        <th className="px-3 py-2">推断属性</th>
+                                                        <th className="px-3 py-2 text-right">置信度</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-200">
+                                                    {cand.previewFields && cand.previewFields.length > 0 ? (
+                                                        cand.previewFields.map((field, idx) => (
+                                                            <tr key={idx}>
+                                                                <td className="px-3 py-2 font-mono text-slate-600">{field.col} <span className="text-slate-400">({field.type})</span></td>
+                                                                <td className="px-3 py-2 font-medium text-slate-800">{field.attr}</td>
+                                                                <td className="px-3 py-2 text-right">
+                                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                                                        field.conf === 'High' ? 'bg-green-100 text-green-700' :
+                                                                        field.conf === 'Medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-100 text-slate-500'
+                                                                    }`}>{field.conf}</span>
+                                                                </td>
+                                                            </tr>
+                                                        ))
+                                                    ) : (
+                                                        <tr><td colSpan={3} className="px-3 py-2 text-center text-slate-400">暂无字段预览</td></tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h5 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">推荐理由明细</h5>
+                                        <ul className="text-xs text-slate-600 space-y-2 list-disc pl-4">
+                                            <li>根据表名 <b>{cand.sourceTable}</b> 推断业务对象可能为 <b>{cand.suggestedName}</b>。</li>
+                                            <li>发现 <b>{cand.mappedFields}</b> 个关键字段高度匹配标准业务定义。</li>
+                                            <li>数据采样分析显示内容特征符合该业务领域模型。</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
 
 const BusinessGoalsView = ({ setActiveModule }) => (
     <div className="space-y-6 animate-fade-in">
-        <div className="flex justify-between items-center">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">业务梳理 (Business Goals)</h2>
-                <p className="text-sm text-slate-500 mt-1">定义核心业务目标与改革事项，明确数据建设方向。</p>
-            </div>
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700">
-                <Plus size={16} /> 新增事项
-            </button>
+        <div>
+            <h2 className="text-2xl font-bold text-slate-800">业务梳理 (Business Goals)</h2>
+            <p className="text-sm text-slate-500 mt-1">定义核心业务目标与改革事项。</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-4">
             {mockBusinessGoals.map(goal => (
-                <div key={goal.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start mb-4">
-                        <span className={`px-2 py-1 text-xs font-bold rounded ${goal.priority === 'High' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{goal.priority}</span>
-                        <MoreHorizontal size={16} className="text-slate-400 cursor-pointer" />
-                    </div>
-                    <h3 className="font-bold text-slate-800 mb-2">{goal.title}</h3>
-                    <p className="text-sm text-slate-500 mb-4 line-clamp-2">{goal.description}</p>
-                    <div className="flex items-center gap-2 mb-4">
-                        <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${goal.progress}%` }}></div>
+                <div key={goal.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+                    <div className="flex justify-between items-start mb-3">
+                        <div>
+                            <span className={`px-2 py-1 text-xs rounded-full font-bold ${
+                                goal.priority === 'High' ? 'bg-red-100 text-red-600' :
+                                goal.priority === 'Medium' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'
+                            }`}>{goal.priority} Priority</span>
+                            <h3 className="text-lg font-bold text-slate-800 mt-2">{goal.title}</h3>
                         </div>
-                        <span className="text-xs font-bold text-slate-600">{goal.progress}%</span>
+                        <span className="text-xs text-slate-400 font-mono">{goal.id}</span>
                     </div>
-                    <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                        <div className="flex -space-x-2">
-                            <div className="w-6 h-6 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[10px] text-slate-600">A</div>
-                            <div className="w-6 h-6 rounded-full bg-slate-300 border-2 border-white flex items-center justify-center text-[10px] text-slate-600">B</div>
+                    <p className="text-sm text-slate-600 mb-4">{goal.description}</p>
+                    <div className="flex items-center gap-4 text-xs text-slate-500 border-t border-slate-100 pt-3">
+                        <span className="flex items-center gap-1"><User size={12}/> {goal.owner}</span>
+                        <span className="flex items-center gap-1"><Clock size={12}/> {goal.lastUpdate}</span>
+                        <div className="ml-auto flex gap-2">
+                             {goal.stages.policy && <BadgeCheck size={14} className="text-emerald-500" title="Policy Ready"/>}
+                             {goal.stages.object && <Box size={14} className="text-emerald-500" title="Object Ready"/>}
+                             {goal.stages.scenario && <Layers size={14} className={goal.stages.scenario ? "text-emerald-500" : "text-slate-300"} title="Scenario Ready"/>}
                         </div>
-                        <span className="text-xs text-slate-400">{goal.lastUpdate}</span>
                     </div>
                 </div>
             ))}
@@ -1180,151 +1324,355 @@ const BusinessGoalsView = ({ setActiveModule }) => (
     </div>
 );
 
-const BusinessModelingView = ({ businessObjects, setBusinessObjects }) => (
+const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO, setSelectedBO }) => {
+    // Local state for editing to avoid changing main state on every keystroke
+    const [editBO, setEditBO] = useState(null);
+    const [isEditing, setIsEditing] = useState(false);
+
+    // Sync selectedBO with edit state
+    useEffect(() => {
+        if (selectedBO) {
+            setEditBO({ ...selectedBO }); // Deep copy might be better for real app, shallow ok here
+            setIsEditing(selectedBO.status === 'draft');
+        } else if (businessObjects.length > 0) {
+            setSelectedBO(businessObjects[0]);
+        }
+    }, [selectedBO, businessObjects]);
+
+    const handleSave = () => {
+        // Save logic: find in main array and update
+        const newObjects = businessObjects.map(bo => bo.id === editBO.id ? editBO : bo);
+        setBusinessObjects(newObjects);
+        setSelectedBO(editBO); // Update selected ref
+        alert("业务对象已保存！");
+    };
+
+    const handlePublish = () => {
+        const publishedBO = { ...editBO, status: 'published' };
+        const newObjects = businessObjects.map(bo => bo.id === editBO.id ? publishedBO : bo);
+        setBusinessObjects(newObjects);
+        setSelectedBO(publishedBO);
+        setIsEditing(false);
+        alert("业务对象已发布！");
+    };
+
+    const handleFieldChange = (idx, field, value) => {
+        const newFields = [...editBO.fields];
+        newFields[idx] = { ...newFields[idx], [field]: value };
+        setEditBO({ ...editBO, fields: newFields });
+    };
+
+    const handleAddField = () => {
+        const newField = { 
+            id: `f_new_${Date.now()}`, 
+            name: '新属性', 
+            code: 'new_attr', 
+            type: 'String', 
+            length: '-', 
+            required: false, 
+            desc: '-' 
+        };
+        setEditBO({ ...editBO, fields: [...editBO.fields, newField] });
+    };
+
+    const handleDeleteField = (idx) => {
+        const newFields = editBO.fields.filter((_, i) => i !== idx);
+        setEditBO({ ...editBO, fields: newFields });
+    };
+
+    if (!editBO) return <div className="p-6">Loading...</div>;
+
+    return (
     <div className="space-y-6 h-full flex flex-col animate-fade-in">
         <div className="flex justify-between items-center shrink-0">
-             <div>
-                <h2 className="text-2xl font-bold text-slate-800">业务对象建模 (Business Modeling)</h2>
-                <p className="text-sm text-slate-500 mt-1">构建 L1/L2 核心业务对象，定义业务属性与语义约束。</p>
+            <div>
+                <h2 className="text-2xl font-bold text-slate-800">业务对象建模 (Modeling)</h2>
+                <p className="text-sm text-slate-500 mt-1">管理核心业务实体及其属性定义。</p>
             </div>
-             <button className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700">
-                <Plus size={16} /> 创建对象
+            <button 
+                onClick={() => {
+                    const newBO = {
+                        id: `BO_${Date.now()}`,
+                        name: '新业务对象',
+                        code: 'biz_new',
+                        domain: '未分类',
+                        owner: '当前用户',
+                        status: 'draft',
+                        version: 'v0.1',
+                        description: '请输入描述...',
+                        fields: []
+                    };
+                    setBusinessObjects(prev => [newBO, ...prev]);
+                    setSelectedBO(newBO);
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700"
+            >
+                <Plus size={16} /> 新建对象
             </button>
         </div>
         <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex">
+            {/* Sidebar List */}
             <div className="w-64 border-r border-slate-200 bg-slate-50 flex flex-col">
                 <div className="p-4 border-b border-slate-200">
                     <input type="text" placeholder="搜索对象..." className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none" />
                 </div>
                 <div className="flex-1 overflow-y-auto">
                     {businessObjects.map(bo => (
-                        <div key={bo.id} className="p-3 border-b border-slate-100 hover:bg-white cursor-pointer transition-colors">
-                            <div className="font-medium text-slate-700">{bo.name}</div>
-                            <div className="text-xs text-slate-400 mt-1">{bo.code}</div>
+                        <div 
+                            key={bo.id} 
+                            onClick={() => setSelectedBO(bo)}
+                            className={`p-3 border-b border-slate-100 cursor-pointer transition-colors ${selectedBO?.id === bo.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-white border-l-4 border-l-transparent'}`}
+                        >
+                            <div className="flex justify-between items-start">
+                                <div className="font-medium text-slate-700 truncate w-32">{bo.name}</div>
+                                {bo.status === 'draft' && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">Draft</span>}
+                            </div>
+                            <div className="text-xs text-slate-400 mt-1 truncate">{bo.code}</div>
                         </div>
                     ))}
                 </div>
             </div>
-            <div className="flex-1 flex flex-col p-6 overflow-y-auto">
-                 {businessObjects.length > 0 ? (
-                    <>
-                        <div className="flex justify-between items-start mb-6">
-                            <div>
-                                <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-                                    {businessObjects[0].name}
-                                    <span className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded-full border border-green-200">{businessObjects[0].status}</span>
-                                </h1>
-                                <p className="text-slate-500 mt-2">{businessObjects[0].description}</p>
-                            </div>
-                            <button className="text-slate-400 hover:text-slate-600"><Settings size={20}/></button>
+
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col bg-white">
+                 {/* Top Action Bar for Edit Mode */}
+                 <div className="h-14 border-b border-slate-200 flex items-center justify-between px-6 bg-slate-50/50">
+                     <div className="text-xs text-slate-500 flex gap-4">
+                         <span>Version: <b className="text-slate-700">{editBO.version}</b></span>
+                         <span>Owner: <b className="text-slate-700">{editBO.owner}</b></span>
+                         <span>Status: <span className={`font-bold ${editBO.status === 'published' ? 'text-green-600' : 'text-orange-500'}`}>{editBO.status.toUpperCase()}</span></span>
+                     </div>
+                     <div className="flex gap-2">
+                         {isEditing ? (
+                             <>
+                                 <button onClick={handleSave} className="px-3 py-1.5 border border-blue-200 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-50 flex items-center gap-1">
+                                     <Save size={14}/> 保存草稿
+                                 </button>
+                                 <button onClick={handlePublish} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center gap-1">
+                                     <Upload size={14}/> 发布对象
+                                 </button>
+                             </>
+                         ) : (
+                             <button onClick={() => setIsEditing(true)} className="px-3 py-1.5 border border-slate-300 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-100 flex items-center gap-1">
+                                 <Edit size={14}/> 编辑定义
+                             </button>
+                         )}
+                     </div>
+                 </div>
+
+                 <div className="flex-1 overflow-y-auto p-8">
+                    {/* Header Info */}
+                    <div className="mb-8 grid grid-cols-2 gap-6">
+                        <div className="col-span-2">
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">业务对象名称</label>
+                            {isEditing ? (
+                                <input 
+                                    value={editBO.name} 
+                                    onChange={(e) => setEditBO({...editBO, name: e.target.value})}
+                                    className="text-2xl font-bold text-slate-800 bg-slate-50 border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none rounded-lg px-2 py-1 w-full -ml-2"
+                                />
+                            ) : (
+                                <h1 className="text-2xl font-bold text-slate-800">{editBO.name}</h1>
+                            )}
                         </div>
-                        
-                        <div className="mb-6">
-                            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-3">属性定义 (Fields)</h3>
-                            <div className="border border-slate-200 rounded-lg overflow-hidden">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="bg-slate-50 text-slate-500">
-                                        <tr>
-                                            <th className="px-4 py-2">名称</th>
-                                            <th className="px-4 py-2">编码</th>
-                                            <th className="px-4 py-2">类型</th>
-                                            <th className="px-4 py-2">描述</th>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">唯一编码 (Code)</label>
+                            {isEditing ? (
+                                <input 
+                                    value={editBO.code} 
+                                    onChange={(e) => setEditBO({...editBO, code: e.target.value})}
+                                    className="font-mono text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
+                                />
+                            ) : (
+                                <div className="font-mono text-sm text-slate-600 bg-slate-50 px-2 py-1 rounded inline-block border border-slate-100">{editBO.code}</div>
+                            )}
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">所属域</label>
+                            <div className="text-sm text-slate-700">{editBO.domain}</div>
+                        </div>
+                        <div className="col-span-2">
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">描述</label>
+                            {isEditing ? (
+                                <textarea 
+                                    value={editBO.description} 
+                                    onChange={(e) => setEditBO({...editBO, description: e.target.value})}
+                                    className="w-full text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded p-2 focus:outline-none focus:border-blue-500"
+                                    rows={2}
+                                />
+                            ) : (
+                                <p className="text-sm text-slate-600 leading-relaxed">{editBO.description}</p>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Fields Table */}
+                    <div>
+                        <div className="flex justify-between items-end mb-3">
+                            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">属性定义 (Fields)</h3>
+                            {isEditing && (
+                                <button onClick={handleAddField} className="text-xs text-blue-600 font-bold hover:underline flex items-center gap-1">
+                                    <Plus size={12}/> 添加属性
+                                </button>
+                            )}
+                        </div>
+                        <div className="border border-slate-200 rounded-lg overflow-hidden">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-50 text-slate-500">
+                                    <tr>
+                                        {isEditing && <th className="w-8 py-2"></th>}
+                                        <th className="px-4 py-2 font-medium">名称</th>
+                                        <th className="px-4 py-2 font-medium">编码</th>
+                                        <th className="px-4 py-2 font-medium">类型</th>
+                                        <th className="px-4 py-2 font-medium">描述</th>
+                                        {isEditing && <th className="px-4 py-2 font-medium text-right">操作</th>}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {editBO.fields.map((f, idx) => (
+                                        <tr key={idx} className="group hover:bg-slate-50">
+                                            {isEditing && (
+                                                <td className="text-center text-slate-300 cursor-move"><GripVertical size={14} className="mx-auto"/></td>
+                                            )}
+                                            <td className="px-4 py-2">
+                                                {isEditing ? (
+                                                    <input 
+                                                        value={f.name} 
+                                                        onChange={(e) => handleFieldChange(idx, 'name', e.target.value)}
+                                                        className="w-full bg-transparent focus:bg-white border-b border-transparent focus:border-blue-500 focus:outline-none px-1"
+                                                    />
+                                                ) : <span className="font-medium">{f.name}</span>}
+                                            </td>
+                                            <td className="px-4 py-2 font-mono text-slate-600">
+                                                {isEditing ? (
+                                                    <input 
+                                                        value={f.code} 
+                                                        onChange={(e) => handleFieldChange(idx, 'code', e.target.value)}
+                                                        className="w-full bg-transparent focus:bg-white border-b border-transparent focus:border-blue-500 focus:outline-none px-1"
+                                                    />
+                                                ) : f.code}
+                                            </td>
+                                            <td className="px-4 py-2 text-blue-600">
+                                                {isEditing ? (
+                                                    <select 
+                                                        value={f.type} 
+                                                        onChange={(e) => handleFieldChange(idx, 'type', e.target.value)}
+                                                        className="bg-transparent focus:bg-white border-b border-transparent focus:border-blue-500 focus:outline-none"
+                                                    >
+                                                        <option>String</option>
+                                                        <option>Integer</option>
+                                                        <option>Decimal</option>
+                                                        <option>DateTime</option>
+                                                        <option>Boolean</option>
+                                                        <option>Enum</option>
+                                                    </select>
+                                                ) : f.type}
+                                            </td>
+                                            <td className="px-4 py-2 text-slate-500">
+                                                {isEditing ? (
+                                                    <input 
+                                                        value={f.desc} 
+                                                        onChange={(e) => handleFieldChange(idx, 'desc', e.target.value)}
+                                                        className="w-full bg-transparent focus:bg-white border-b border-transparent focus:border-blue-500 focus:outline-none px-1"
+                                                    />
+                                                ) : f.desc}
+                                            </td>
+                                            {isEditing && (
+                                                <td className="px-4 py-2 text-right">
+                                                    <button onClick={() => handleDeleteField(idx)} className="text-slate-400 hover:text-red-500 p-1">
+                                                        <Trash2 size={14}/>
+                                                    </button>
+                                                </td>
+                                            )}
                                         </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {businessObjects[0].fields.map(f => (
-                                            <tr key={f.id}>
-                                                <td className="px-4 py-3 font-medium">{f.name}</td>
-                                                <td className="px-4 py-3 font-mono text-slate-600">{f.code}</td>
-                                                <td className="px-4 py-3 text-blue-600">{f.type}</td>
-                                                <td className="px-4 py-3 text-slate-500">{f.desc}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                                    ))}
+                                </tbody>
+                            </table>
+                            {editBO.fields.length === 0 && (
+                                <div className="p-8 text-center text-slate-400 text-sm">暂无属性定义，请添加</div>
+                            )}
                         </div>
-                    </>
-                 ) : <div className="text-center text-slate-400 mt-20">暂无业务对象</div>}
+                    </div>
+                 </div>
             </div>
         </div>
     </div>
-);
+    );
+};
 
 const ScenarioOrchestrationView = ({ businessObjects }) => (
     <div className="space-y-6 animate-fade-in">
-        <div className="flex justify-between items-center">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">场景编排 (Scenarios)</h2>
-                <p className="text-sm text-slate-500 mt-1">基于业务对象编排业务流程与交互场景。</p>
-            </div>
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700">
-                <Plus size={16} /> 新增场景
-            </button>
+        <div>
+            <h2 className="text-2xl font-bold text-slate-800">场景编排 (Scenarios)</h2>
+            <p className="text-sm text-slate-500 mt-1">定义业务流程与对象交互逻辑。</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {mockScenarios.map(sc => (
-                <div key={sc.id} className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-                    <div className="flex justify-between items-start mb-4">
-                        <h3 className="font-bold text-slate-800 text-lg">{sc.name}</h3>
-                        <span className={`px-2 py-1 text-xs rounded-full ${sc.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>{sc.status}</span>
-                    </div>
-                    <p className="text-sm text-slate-500 mb-6 h-10">{sc.description}</p>
-                    <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2">
-                        {sc.nodes.map((node, i) => (
-                            <div key={node.id} className="flex items-center shrink-0">
-                                <div className={`px-3 py-1.5 rounded-lg border text-xs font-medium ${node.status === 'done' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
-                                    {node.label}
-                                </div>
-                                {i < sc.nodes.length - 1 && <ArrowRight size={14} className="mx-2 text-slate-300" />}
-                            </div>
-                        ))}
-                    </div>
-                    <div className="pt-4 border-t border-slate-100 flex justify-end">
-                         <button className="text-sm text-blue-600 font-medium hover:underline">编辑编排</button>
-                    </div>
-                </div>
-            ))}
+        <div className="space-y-4">
+             {mockScenarios.map(sc => (
+                 <div key={sc.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                      <div className="flex justify-between items-start mb-4">
+                          <div>
+                              <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                  <Layers size={18} className="text-indigo-500"/> {sc.name}
+                              </h3>
+                              <p className="text-sm text-slate-500 mt-1">{sc.description}</p>
+                          </div>
+                          <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><Edit size={16}/></button>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 overflow-x-auto pb-2">
+                          {sc.nodes.map((node, idx) => (
+                              <React.Fragment key={node.id}>
+                                  <div className={`px-4 py-2 rounded-lg border text-sm flex items-center gap-2 whitespace-nowrap ${
+                                      node.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
+                                      node.status === 'process' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-500'
+                                  }`}>
+                                      {node.type === 'start' && <Play size={12}/>}
+                                      {node.type === 'end' && <CheckCircle size={12}/>}
+                                      {node.label}
+                                  </div>
+                                  {idx < sc.nodes.length - 1 && (
+                                      <ArrowRight size={14} className="text-slate-300 shrink-0"/>
+                                  )}
+                              </React.Fragment>
+                          ))}
+                      </div>
+                 </div>
+             ))}
         </div>
     </div>
 );
 
 const DataSourceManagementView = ({ dataSources, setDataSources }) => (
     <div className="space-y-6 animate-fade-in">
-        <div className="flex justify-between items-center">
-             <div>
-                <h2 className="text-2xl font-bold text-slate-800">数据源管理 (Data Sources)</h2>
-                <p className="text-sm text-slate-500 mt-1">配置与管理物理数据源连接。</p>
+         <div className="flex justify-between items-center">
+            <div>
+                <h2 className="text-2xl font-bold text-slate-800">数据源管理 (Connect)</h2>
+                <p className="text-sm text-slate-500 mt-1">配置物理数据库连接。</p>
             </div>
-             <button className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700">
-                <Plus size={16} /> 新增连接
+            <button className="px-4 py-2 bg-emerald-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-emerald-700">
+                <Plus size={16} /> 新增数据源
             </button>
         </div>
         <div className="grid grid-cols-1 gap-4">
             {dataSources.map(ds => (
-                <div key={ds.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${ds.status === 'connected' ? 'bg-green-100 text-green-600' : ds.status === 'error' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                            <Database size={24} />
-                        </div>
-                        <div>
-                            <h3 className="font-bold text-slate-800">{ds.name}</h3>
-                            <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
-                                <span className="px-2 py-0.5 bg-slate-100 rounded">{ds.type}</span>
-                                <span>{ds.host}:{ds.port}</span>
-                                <span>{ds.dbName}</span>
-                            </div>
+                <div key={ds.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center gap-6">
+                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 shrink-0">
+                        {ds.type === 'MySQL' ? <Database size={24} className="text-blue-500"/> : 
+                         ds.type === 'Oracle' ? <Database size={24} className="text-red-500"/> :
+                         <Database size={24}/>}
+                    </div>
+                    <div className="flex-1 w-full text-center md:text-left">
+                        <h3 className="font-bold text-slate-800 text-lg">{ds.name}</h3>
+                        <div className="text-xs text-slate-500 font-mono mt-1">{ds.type} • {ds.host}:{ds.port} • {ds.dbName}</div>
+                        <div className="flex items-center gap-2 mt-2 justify-center md:justify-start">
+                             <div className={`w-2 h-2 rounded-full ${ds.status === 'connected' ? 'bg-emerald-500' : ds.status === 'error' ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
+                             <span className="text-xs text-slate-600 capitalize">{ds.status}</span>
+                             {ds.status === 'error' && <span className="text-xs text-red-500 flex items-center gap-1"><AlertCircle size={10}/> Connection Failed</span>}
                         </div>
                     </div>
-                    <div className="flex items-center gap-6">
-                        <div className="text-right">
-                             <div className="text-xs text-slate-400">上次扫描</div>
-                             <div className="text-sm font-medium text-slate-700">{ds.lastScan}</div>
-                        </div>
-                        <div className={`px-3 py-1 rounded-full text-xs font-bold ${ds.status === 'connected' ? 'bg-green-100 text-green-700' : ds.status === 'error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-                            {ds.status}
-                        </div>
-                        <button className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><Settings size={18} /></button>
+                    <div className="flex gap-2">
+                        <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><RefreshCw size={16}/></button>
+                        <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"><Settings size={16}/></button>
                     </div>
                 </div>
             ))}
@@ -1336,242 +1684,237 @@ const AssetScanningView = ({ setActiveModule, candidates }) => (
     <div className="space-y-6 animate-fade-in">
         <div className="flex justify-between items-center">
             <div>
-                <h2 className="text-2xl font-bold text-slate-800">资产扫描 (Asset Discovery)</h2>
-                <p className="text-sm text-slate-500 mt-1">自动扫描并识别物理表资产。</p>
+                <h2 className="text-2xl font-bold text-slate-800">资产扫描 (Discovery)</h2>
+                <p className="text-sm text-slate-500 mt-1">自动扫描物理数据源，发现技术元数据。</p>
             </div>
-            <div className="flex gap-3">
-                 <button className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-slate-50">
-                    <Filter size={16} /> 过滤
-                </button>
-                <button className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700">
+            <div className="flex gap-2">
+                 <button className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50">配置规则</button>
+                 <button className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700">
                     <RefreshCw size={16} /> 立即扫描
-                </button>
+                 </button>
             </div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <table className="w-full text-sm text-left">
-                <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
-                    <tr>
-                        <th className="px-6 py-4 font-medium">资产名称</th>
-                        <th className="px-6 py-4 font-medium">注释</th>
-                        <th className="px-6 py-4 font-medium">行数</th>
-                        <th className="px-6 py-4 font-medium">状态</th>
-                        <th className="px-6 py-4 font-medium text-right">操作</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                    {mockScanAssets.map(asset => (
-                        <tr key={asset.id} className="hover:bg-slate-50 group">
-                            <td className="px-6 py-4">
-                                <div className="font-bold text-slate-700">{asset.name}</div>
-                                <div className="text-xs text-slate-400 mt-0.5">Updated: {asset.updateTime}</div>
-                            </td>
-                            <td className="px-6 py-4 text-slate-600">{asset.comment || '-'}</td>
-                            <td className="px-6 py-4 font-mono text-slate-500">{asset.rows}</td>
-                            <td className="px-6 py-4">
-                                <span className={`px-2 py-1 rounded text-xs font-medium ${asset.status === 'new' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
-                                    {asset.status.toUpperCase()}
-                                </span>
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                                <button className="text-blue-600 hover:text-blue-800 font-medium text-xs mr-3" onClick={() => setActiveModule('bu_semantics')}>语义分析</button>
-                                <button className="text-slate-400 hover:text-slate-600"><Eye size={16} /></button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    </div>
-);
-
-const CandidateGenerationView = ({ candidates, setCandidates, setBusinessObjects }) => (
-    <div className="space-y-6 animate-fade-in">
-        <div className="flex justify-between items-center">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">候选生成 (Candidates)</h2>
-                <p className="text-sm text-slate-500 mt-1">AI 推荐的潜在业务对象。</p>
-            </div>
-        </div>
-        <div className="grid grid-cols-1 gap-6">
-            {candidates.map(cand => (
-                <div key={cand.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-6">
-                    <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                            <h3 className="text-lg font-bold text-slate-800">{cand.suggestedName}</h3>
-                            <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-bold rounded-full">{Math.round(cand.confidence * 100)}% Match</span>
-                        </div>
-                        <p className="text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-lg border border-slate-100">{cand.reason}</p>
-                        <div className="flex gap-4 text-sm text-slate-500 mb-4">
-                             <div>来源表: <span className="font-mono text-slate-700">{cand.sourceTable}</span></div>
-                             <div>映射字段: <span className="font-bold text-slate-700">{cand.mappedFields}</span></div>
-                        </div>
-                         <div className="flex gap-2">
-                             <button 
-                                onClick={() => {
-                                    alert(`Created BO from ${cand.suggestedName}`);
-                                    setCandidates(prev => prev.filter(c => c.id !== cand.id));
-                                }}
-                                className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700"
-                             >
-                                 采纳建议
-                             </button>
-                             <button className="px-3 py-1.5 border border-slate-200 text-slate-600 text-xs font-bold rounded hover:bg-slate-50">忽略</button>
-                         </div>
-                    </div>
-                    <div className="w-full md:w-64 border-l border-slate-100 pl-6 space-y-3">
-                         <ScoreBar label="名称匹配" score={cand.scores.nameMatch} />
-                         <ScoreBar label="字段匹配" score={cand.scores.fieldMatch} />
-                         <ScoreBar label="数据采样" score={cand.scores.dataSample} />
-                    </div>
-                </div>
-            ))}
+        
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+             <table className="w-full text-sm text-left">
+                 <thead className="bg-slate-50 text-slate-500 font-medium">
+                     <tr>
+                         <th className="px-6 py-3">物理表名</th>
+                         <th className="px-6 py-3">注释</th>
+                         <th className="px-6 py-3">数据行数</th>
+                         <th className="px-6 py-3">更新时间</th>
+                         <th className="px-6 py-3">状态</th>
+                         <th className="px-6 py-3 text-right">操作</th>
+                     </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-100">
+                     {mockScanAssets.map(asset => (
+                         <tr key={asset.id} className="hover:bg-slate-50 transition-colors">
+                             <td className="px-6 py-4 font-mono font-medium text-slate-700">{asset.name}</td>
+                             <td className="px-6 py-4 text-slate-500">{asset.comment || '-'}</td>
+                             <td className="px-6 py-4 text-slate-600">{asset.rows}</td>
+                             <td className="px-6 py-4 text-slate-400 text-xs">{asset.updateTime}</td>
+                             <td className="px-6 py-4">
+                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                                     asset.status === 'new' ? 'bg-green-100 text-green-700' : 
+                                     asset.status === 'changed' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'
+                                 }`}>
+                                     {asset.status.toUpperCase()}
+                                 </span>
+                             </td>
+                             <td className="px-6 py-4 text-right">
+                                 <button onClick={() => setActiveModule('bu_semantics')} className="text-blue-600 hover:text-blue-800 font-medium text-xs">语义解析</button>
+                             </td>
+                         </tr>
+                     ))}
+                 </tbody>
+             </table>
         </div>
     </div>
 );
 
 const MappingStudioView = ({ selectedBO }) => (
-    <div className="space-y-6 h-full flex flex-col animate-fade-in">
-        <div className="flex justify-between items-center shrink-0">
+    <div className="space-y-6 animate-fade-in">
+        <div className="flex justify-between items-center">
              <div>
-                <h2 className="text-2xl font-bold text-slate-800">映射工作台 (Mapping Studio)</h2>
-                <p className="text-sm text-slate-500 mt-1">可视化的业务对象到物理表的映射管理。</p>
+                <h2 className="text-2xl font-bold text-slate-800">映射工作台 (Mapping)</h2>
+                <p className="text-sm text-slate-500 mt-1">定义业务对象属性与物理表字段的映射关系。</p>
             </div>
-             <button className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700">
-                <Save size={16} /> 保存映射
-            </button>
+            <div className="flex gap-2">
+                 <span className="text-sm text-slate-500 self-center">当前对象: <b className="text-slate-800">{selectedBO?.name || '未选择'}</b></span>
+            </div>
         </div>
 
-        <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex relative">
-            {/* BO Column */}
-            <div className="flex-1 border-r border-slate-200 flex flex-col">
-                <div className="p-4 bg-blue-50 border-b border-blue-100 text-blue-900 font-bold flex justify-between">
-                    <span>业务对象: {selectedBO.name}</span>
-                    <Box size={16} />
-                </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {selectedBO.fields.map(f => (
-                        <div key={f.id} className="p-3 border border-slate-200 rounded-lg bg-white shadow-sm flex justify-between items-center group hover:border-blue-400">
+        <div className="flex gap-8 items-start">
+             {/* Source: Business Object */}
+             <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Box size={18}/> 业务对象 (Logical)</h3>
+                 <div className="space-y-2">
+                     {selectedBO?.fields?.map(f => (
+                         <div key={f.id} className="p-3 border border-slate-200 rounded-lg bg-slate-50 flex justify-between items-center">
                              <div>
-                                 <div className="font-bold text-slate-700 text-sm">{f.name}</div>
+                                 <div className="font-bold text-sm text-slate-700">{f.name}</div>
                                  <div className="text-xs text-slate-400 font-mono">{f.code} ({f.type})</div>
                              </div>
-                             <div className="w-3 h-3 rounded-full bg-blue-400 border-2 border-white shadow-sm cursor-crosshair"></div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Canvas Area (Mock) */}
-            <div className="w-48 bg-slate-50 flex items-center justify-center relative">
-                 <div className="absolute inset-0 opacity-10" style={{backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)', backgroundSize: '10px 10px'}}></div>
-                 <div className="text-slate-400 text-xs text-center px-4">
-                     <GitMerge size={32} className="mx-auto mb-2 opacity-50"/>
-                     拖拽连线以建立映射<br/>(Visual Canvas)
+                             <div className="w-3 h-3 rounded-full bg-blue-400"></div>
+                         </div>
+                     ))}
+                     {(!selectedBO?.fields || selectedBO.fields.length === 0) && <div className="text-center text-slate-400 py-4 text-sm">无属性定义</div>}
                  </div>
-            </div>
+             </div>
+             
+             {/* Center: Mapping Lines (Visual representation simplified) */}
+             <div className="w-16 flex flex-col items-center justify-center pt-20 gap-4 opacity-50">
+                 <ArrowRight size={24} className="text-slate-400"/>
+                 <GitMerge size={24} className="text-purple-400"/>
+                 <ArrowRight size={24} className="text-slate-400"/>
+             </div>
 
-            {/* Physical Column */}
-            <div className="flex-1 border-l border-slate-200 flex flex-col">
-                <div className="p-4 bg-emerald-50 border-b border-emerald-100 text-emerald-900 font-bold flex justify-between">
-                    <span>物理表: t_pop_base_info</span>
-                    <Database size={16} />
-                </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {mockPhysicalTables[0].fields.map((f, i) => (
-                        <div key={i} className="p-3 border border-slate-200 rounded-lg bg-white shadow-sm flex justify-between items-center group hover:border-emerald-400">
-                             <div className="w-3 h-3 rounded-full bg-emerald-400 border-2 border-white shadow-sm cursor-crosshair"></div>
-                             <div className="text-right">
-                                 <div className="font-bold text-slate-700 text-sm">{f.name}</div>
-                                 <div className="text-xs text-slate-400 font-mono">{f.type}</div>
+             {/* Target: Physical Table */}
+             <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Database size={18}/> 物理表 (Physical)</h3>
+                 {selectedBO?.sourceTables?.[0] ? (
+                      <div className="space-y-2">
+                         {/* Mocking mapping based on mockMappings or generic list if not exact match found easily */}
+                         {mockPhysicalTables[0].fields.map((col, idx) => (
+                             <div key={idx} className="p-3 border border-slate-200 rounded-lg bg-slate-50 flex justify-between items-center">
+                                 <div className="w-3 h-3 rounded-full bg-emerald-400"></div>
+                                 <div className="text-right">
+                                     <div className="font-bold text-sm text-slate-700">{col.name}</div>
+                                     <div className="text-xs text-slate-400 font-mono">{col.type}</div>
+                                 </div>
                              </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
+                         ))}
+                      </div>
+                 ) : (
+                     <div className="text-center text-slate-400 py-10 border-2 border-dashed border-slate-200 rounded-lg">
+                         未绑定物理源表
+                     </div>
+                 )}
+             </div>
+        </div>
+
+        {/* Mapping Table */}
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm mt-6">
+            <div className="px-6 py-4 border-b border-slate-100 font-bold text-slate-700">已定义映射规则</div>
+            <table className="w-full text-sm text-left">
+                 <thead className="bg-slate-50 text-slate-500 font-medium">
+                     <tr>
+                         <th className="px-6 py-3">业务属性</th>
+                         <th className="px-6 py-3">物理字段</th>
+                         <th className="px-6 py-3">转换规则</th>
+                         <th className="px-6 py-3 text-right">操作</th>
+                     </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-100">
+                     {mockMappings.map((m, i) => (
+                         <tr key={i} className="hover:bg-slate-50">
+                             <td className="px-6 py-3 font-medium text-slate-700">{m.boField}</td>
+                             <td className="px-6 py-3 font-mono text-slate-600">{m.tblField}</td>
+                             <td className="px-6 py-3"><span className="bg-blue-50 text-blue-600 px-2 py-1 rounded text-xs border border-blue-100">{m.rule}</span></td>
+                             <td className="px-6 py-3 text-right text-slate-400 hover:text-red-500 cursor-pointer"><Trash2 size={16} /></td>
+                         </tr>
+                     ))}
+                 </tbody>
+            </table>
         </div>
     </div>
 );
 
-const ConflictDetectionView = () => (
+const ConflictDetectionView = ({ setActiveModule }) => (
     <div className="space-y-6 animate-fade-in">
-        <div className="flex justify-between items-center">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">冲突检测 (Governance)</h2>
-                <p className="text-sm text-slate-500 mt-1">自动识别业务定义与物理实现之间的冲突。</p>
-            </div>
-            <button className="px-4 py-2 border border-slate-300 rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-slate-50">
-                 <RefreshCw size={16} /> 重新检测
-            </button>
+        <div>
+            <h2 className="text-2xl font-bold text-slate-800">冲突检测 (Governance)</h2>
+            <p className="text-sm text-slate-500 mt-1">检测业务定义与物理实现之间的差异与冲突。</p>
         </div>
-        <div className="space-y-4">
-            {mockConflicts.map(cf => (
-                <div key={cf.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex items-start gap-4">
-                    <div className={`p-3 rounded-lg shrink-0 ${cf.severity === 'High' ? 'bg-red-50 text-red-600' : cf.severity === 'Medium' ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'}`}>
-                        <AlertTriangle size={20} />
-                    </div>
-                    <div className="flex-1">
-                        <div className="flex justify-between items-start">
-                            <h3 className="font-bold text-slate-800">{cf.title}</h3>
-                            <span className="text-xs text-slate-400">{cf.detectedAt}</span>
-                        </div>
-                        <p className="text-sm text-slate-600 mt-1 mb-3">{cf.desc}</p>
-                        <div className="flex items-center gap-4 text-xs">
-                             <span className="px-2 py-1 bg-slate-100 rounded text-slate-600">Object: {cf.objectName}</span>
-                             <span className="px-2 py-1 bg-slate-100 rounded text-slate-600">Asset: {cf.assetName}</span>
-                             <button className="ml-auto text-blue-600 font-bold hover:underline">去解决 &rarr;</button>
-                        </div>
-                    </div>
-                </div>
-            ))}
+        <div className="grid grid-cols-1 gap-4">
+             {mockConflicts.map(cf => (
+                 <div key={cf.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex gap-4 hover:shadow-md transition-all">
+                     <div className={`mt-1 ${
+                         cf.severity === 'High' ? 'text-red-500' : 
+                         cf.severity === 'Medium' ? 'text-orange-500' : 'text-blue-500'
+                     }`}>
+                         <AlertTriangle size={24} />
+                     </div>
+                     <div className="flex-1">
+                         <div className="flex justify-between items-start">
+                             <h3 className="font-bold text-slate-800 text-lg">{cf.title}</h3>
+                             <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                 cf.severity === 'High' ? 'bg-red-100 text-red-700' : 
+                                 cf.severity === 'Medium' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                             }`}>{cf.severity}</span>
+                         </div>
+                         <p className="text-sm text-slate-600 mt-1 mb-3">{cf.desc}</p>
+                         <div className="flex items-center gap-4 text-xs text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                             <span>对象: <b>{cf.objectName}</b></span>
+                             <span>资产: <b>{cf.assetName}</b></span>
+                             <span>检测时间: {cf.detectedAt}</span>
+                         </div>
+                     </div>
+                     <div className="flex flex-col gap-2 justify-center">
+                         <button onClick={() => setActiveModule('mapping')} className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 whitespace-nowrap">去修复</button>
+                         <button className="px-4 py-2 border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 whitespace-nowrap">忽略</button>
+                     </div>
+                 </div>
+             ))}
         </div>
     </div>
 );
 
 const DataCatalogView = () => (
     <div className="space-y-6 animate-fade-in">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">统一元数据目录 (Catalog)</h2>
-            <p className="text-sm text-slate-500 mt-1">集中管理所有业务对象与技术资产。</p>
+        <div className="flex justify-between items-center">
+            <div>
+                <h2 className="text-2xl font-bold text-slate-800">统一元数据目录 (Catalog)</h2>
+                <p className="text-sm text-slate-500 mt-1">管理全域数据资产目录。</p>
+            </div>
+             <div className="relative">
+                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                 <input type="text" placeholder="搜索资产..." className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" />
+             </div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
              <table className="w-full text-sm text-left">
-                <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
-                    <tr>
-                        <th className="px-6 py-4 font-medium">名称</th>
-                        <th className="px-6 py-4 font-medium">类型</th>
-                        <th className="px-6 py-4 font-medium">所有者</th>
-                        <th className="px-6 py-4 font-medium">质量评分</th>
-                        <th className="px-6 py-4 font-medium">状态</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                    {mockCatalogAssets.map(item => (
-                        <tr key={item.id} className="hover:bg-slate-50">
-                            <td className="px-6 py-4">
-                                <div className="font-bold text-slate-700">{item.name}</div>
-                                <div className="text-xs text-slate-400">{item.code}</div>
-                            </td>
-                            <td className="px-6 py-4">
-                                <span className={`px-2 py-1 text-xs rounded border ${item.type === 'Business Object' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
-                                    {item.type}
-                                </span>
-                            </td>
-                            <td className="px-6 py-4 text-slate-600">{item.owner}</td>
-                            <td className="px-6 py-4">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                        <div className={`h-full rounded-full ${item.quality > 90 ? 'bg-green-500' : 'bg-orange-500'}`} style={{width: `${item.quality}%`}}></div>
-                                    </div>
-                                    <span className="text-xs font-mono">{item.quality}</span>
-                                </div>
-                            </td>
-                            <td className="px-6 py-4">
-                                <span className="text-slate-600 text-xs">{item.status}</span>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
+                 <thead className="bg-slate-50 text-slate-500 font-medium">
+                     <tr>
+                         <th className="px-6 py-3">资产名称</th>
+                         <th className="px-6 py-3">类型</th>
+                         <th className="px-6 py-3">编码</th>
+                         <th className="px-6 py-3">Owner</th>
+                         <th className="px-6 py-3">质量分</th>
+                         <th className="px-6 py-3">标签</th>
+                     </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-100">
+                     {mockCatalogAssets.map(asset => (
+                         <tr key={asset.id} className="hover:bg-slate-50">
+                             <td className="px-6 py-4 font-bold text-slate-700">{asset.name}</td>
+                             <td className="px-6 py-4">
+                                 <span className={`px-2 py-1 rounded text-xs ${
+                                     asset.type === 'Business Object' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'
+                                 }`}>{asset.type}</span>
+                             </td>
+                             <td className="px-6 py-4 font-mono text-slate-500 text-xs">{asset.code}</td>
+                             <td className="px-6 py-4 text-slate-600">{asset.owner}</td>
+                             <td className="px-6 py-4">
+                                 <div className="flex items-center gap-2">
+                                     <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                         <div className={`h-full ${asset.quality >= 90 ? 'bg-green-500' : 'bg-orange-500'}`} style={{width: `${asset.quality}%`}}></div>
+                                     </div>
+                                     <span className="text-xs font-bold">{asset.quality}</span>
+                                 </div>
+                             </td>
+                             <td className="px-6 py-4">
+                                 <div className="flex gap-1">
+                                     {asset.tags.map(tag => (
+                                         <span key={tag} className="px-1.5 py-0.5 border border-slate-200 text-slate-500 rounded text-[10px]">{tag}</span>
+                                     ))}
+                                 </div>
+                             </td>
+                         </tr>
+                     ))}
+                 </tbody>
              </table>
         </div>
     </div>
@@ -1580,35 +1923,43 @@ const DataCatalogView = () => (
 const ApiGatewayView = () => (
     <div className="space-y-6 animate-fade-in">
         <div>
-            <h2 className="text-2xl font-bold text-slate-800">API 服务网关 (API Gateway)</h2>
-            <p className="text-sm text-slate-500 mt-1">管理基于语义层生成的数据服务接口。</p>
+            <h2 className="text-2xl font-bold text-slate-800">API 服务网关 (Gateway)</h2>
+            <p className="text-sm text-slate-500 mt-1">管理基于语义模型自动生成的 API 服务。</p>
         </div>
         <div className="grid grid-cols-1 gap-4">
-            {mockApiServices.map(api => (
-                <div key={api.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-                    <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-1">
-                            <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${api.method === 'GET' ? 'bg-blue-500' : 'bg-green-500'}`}>{api.method}</span>
-                            <h3 className="font-bold text-slate-800">{api.name}</h3>
-                        </div>
-                        <div className="text-xs font-mono text-slate-500 bg-slate-50 inline-block px-2 py-1 rounded">{api.path}</div>
-                    </div>
-                    <div className="flex gap-8 text-center mr-8">
-                         <div>
-                             <div className="text-xs text-slate-400">QPS</div>
-                             <div className="text-sm font-bold text-slate-700">{api.qps}</div>
+             {mockApiServices.map(api => (
+                 <div key={api.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-6">
+                     <div className={`px-3 py-1.5 rounded-lg text-sm font-bold font-mono ${
+                         api.method === 'GET' ? 'bg-blue-100 text-blue-700' : 
+                         api.method === 'POST' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'
+                     }`}>{api.method}</div>
+                     <div className="flex-1">
+                         <div className="font-bold text-slate-800">{api.name}</div>
+                         <div className="text-xs text-slate-500 font-mono mt-1">{api.path}</div>
+                     </div>
+                     <div className="flex items-center gap-8 text-sm">
+                         <div className="text-center">
+                             <div className="text-slate-400 text-xs">QPS</div>
+                             <div className="font-bold text-slate-700">{api.qps}</div>
                          </div>
-                         <div>
-                             <div className="text-xs text-slate-400">Latency</div>
-                             <div className="text-sm font-bold text-slate-700">{api.latency}</div>
+                         <div className="text-center">
+                             <div className="text-slate-400 text-xs">Latency</div>
+                             <div className={`font-bold ${parseInt(api.latency) > 100 ? 'text-orange-500' : 'text-slate-700'}`}>{api.latency}</div>
                          </div>
-                    </div>
-                    <div className="flex gap-2">
-                        <button className="p-2 hover:bg-slate-100 rounded text-slate-500"><Terminal size={18}/></button>
-                        <button className="p-2 hover:bg-slate-100 rounded text-slate-500"><Settings size={18}/></button>
-                    </div>
-                </div>
-            ))}
+                         <div className="text-center">
+                             <div className="text-slate-400 text-xs">Error Rate</div>
+                             <div className="font-bold text-slate-700">{api.errorRate}</div>
+                         </div>
+                         <div className={`px-2 py-1 rounded text-xs font-bold ${api.status === 'Online' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                             {api.status}
+                         </div>
+                     </div>
+                     <div className="flex gap-2">
+                         <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><Terminal size={16}/></button>
+                         <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Share2 size={16}/></button>
+                     </div>
+                 </div>
+             ))}
         </div>
     </div>
 );
@@ -1616,40 +1967,50 @@ const ApiGatewayView = () => (
 const CacheStrategyView = () => (
     <div className="space-y-6 animate-fade-in">
         <div>
-            <h2 className="text-2xl font-bold text-slate-800">缓存策略 (Cache)</h2>
-            <p className="text-sm text-slate-500 mt-1">配置业务对象的数据缓存规则以提升性能。</p>
+            <h2 className="text-2xl font-bold text-slate-800">缓存策略配置 (Caching)</h2>
+            <p className="text-sm text-slate-500 mt-1">配置语义层数据的缓存加速策略。</p>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             {/* Policies */}
-             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Settings size={16}/> 缓存策略</h3>
-                 <div className="space-y-4">
-                     {mockCachePolicies.map(cp => (
-                         <div key={cp.id} className="p-4 border border-slate-100 rounded-lg bg-slate-50 flex justify-between items-center">
-                             <div>
-                                 <div className="font-bold text-sm text-slate-700">{cp.name}</div>
-                                 <div className="text-xs text-slate-500 mt-1">Target: {cp.target} • TTL: {cp.ttl}</div>
-                             </div>
-                             <div className="text-right">
-                                 <div className="text-xs font-mono font-bold text-blue-600">{cp.type}</div>
-                                 <div className="text-[10px] text-slate-400">{cp.eviction}</div>
-                             </div>
+             <div className="space-y-4">
+                 <h3 className="font-bold text-slate-700 flex items-center gap-2"><Settings size={18}/> 策略定义</h3>
+                 {mockCachePolicies.map(cp => (
+                     <div key={cp.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                         <div className="flex justify-between items-center mb-2">
+                             <div className="font-bold text-slate-700">{cp.name}</div>
+                             <div className={`w-2 h-2 rounded-full ${cp.status === 'Active' ? 'bg-green-500' : 'bg-slate-300'}`}></div>
                          </div>
-                     ))}
-                 </div>
+                         <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
+                             <div>Target: <span className="text-slate-700">{cp.target}</span></div>
+                             <div>Type: <span className="text-slate-700">{cp.type}</span></div>
+                             <div>TTL: <span className="text-slate-700">{cp.ttl}</span></div>
+                             <div>Eviction: <span className="text-slate-700">{cp.eviction}</span></div>
+                         </div>
+                     </div>
+                 ))}
              </div>
 
-             {/* Keys */}
-             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Activity size={16}/> 热点 Key 监控</h3>
-                 <div className="space-y-3">
-                     {mockCacheKeys.map((k, i) => (
-                         <div key={i} className="flex items-center justify-between text-sm p-2 hover:bg-slate-50 rounded">
-                             <div className="font-mono text-slate-600 text-xs truncate max-w-[200px]">{k.key}</div>
-                             <div className="text-xs text-slate-400">{k.hits} hits</div>
-                         </div>
-                     ))}
+             <div className="space-y-4">
+                 <h3 className="font-bold text-slate-700 flex items-center gap-2"><Activity size={18}/> 热门缓存 Key</h3>
+                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                     <table className="w-full text-xs text-left">
+                         <thead className="bg-slate-50 text-slate-500">
+                             <tr>
+                                 <th className="px-4 py-2">Key Pattern</th>
+                                 <th className="px-4 py-2">Size</th>
+                                 <th className="px-4 py-2">Hits</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y divide-slate-100">
+                             {mockCacheKeys.map((k, i) => (
+                                 <tr key={i}>
+                                     <td className="px-4 py-2 font-mono text-slate-600 truncate max-w-[150px]" title={k.key}>{k.key}</td>
+                                     <td className="px-4 py-2 text-slate-500">{k.size}</td>
+                                     <td className="px-4 py-2 text-slate-700 font-medium">{k.hits}</td>
+                                 </tr>
+                             ))}
+                         </tbody>
+                     </table>
                  </div>
              </div>
         </div>
@@ -1657,111 +2018,123 @@ const CacheStrategyView = () => (
 );
 
 const DataLineageView = () => (
-    <div className="space-y-6 h-full flex flex-col animate-fade-in">
-        <div className="shrink-0">
+    <div className="space-y-6 animate-fade-in h-full flex flex-col">
+        <div>
             <h2 className="text-2xl font-bold text-slate-800">全链路血缘 (Lineage)</h2>
-            <p className="text-sm text-slate-500 mt-1">追踪数据从源端到 API 服务的完整流向。</p>
+            <p className="text-sm text-slate-500 mt-1">可视化数据从物理源到 API 服务的流转过程。</p>
         </div>
-        <div className="flex-1 bg-slate-900 rounded-xl shadow-inner border border-slate-800 relative overflow-hidden flex items-center justify-center">
-             {/* Mock Lineage Graph Visualization */}
-             <div className="flex items-center gap-8">
-                  {/* Source */}
-                  <div className="text-center">
-                      <div className="w-16 h-16 bg-slate-800 rounded-full border-2 border-slate-600 flex items-center justify-center mx-auto mb-2 text-slate-400">
-                          <Database size={24} />
-                      </div>
-                      <div className="text-xs text-slate-400">MySQL</div>
-                  </div>
-                  
-                  <div className="h-px w-12 bg-slate-700"></div>
+        
+        <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm p-8 flex items-center justify-center overflow-auto relative">
+            <div className="absolute top-4 right-4 flex gap-2">
+                <button className="p-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50"><ZoomIn size={16} /></button>
+                <button className="p-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50"><ZoomOut size={16} /></button>
+            </div>
+            
+            {/* Simple static SVG visualization for lineage */}
+            <svg width="800" height="400" viewBox="0 0 800 400" className="w-full h-full max-w-4xl">
+                 <defs>
+                     <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                         <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
+                     </marker>
+                 </defs>
+                 
+                 {/* Links */}
+                 <path d="M 150 200 L 300 200" stroke="#cbd5e1" strokeWidth="2" markerEnd="url(#arrowhead)" />
+                 <path d="M 400 200 L 550 150" stroke="#cbd5e1" strokeWidth="2" markerEnd="url(#arrowhead)" />
+                 <path d="M 400 200 L 550 250" stroke="#cbd5e1" strokeWidth="2" markerEnd="url(#arrowhead)" />
 
-                  {/* Table */}
-                  <div className="text-center">
-                      <div className="w-16 h-16 bg-emerald-900/50 rounded-lg border-2 border-emerald-700 flex items-center justify-center mx-auto mb-2 text-emerald-500">
-                          <Table size={24} />
-                      </div>
-                      <div className="text-xs text-emerald-500">Table</div>
-                  </div>
+                 {/* Nodes */}
+                 <g transform="translate(50, 170)">
+                     <rect x="0" y="0" width="100" height="60" rx="6" fill="#ecfdf5" stroke="#10b981" strokeWidth="2"/>
+                     <text x="50" y="35" textAnchor="middle" className="text-xs font-bold fill-emerald-800">MySQL 源</text>
+                 </g>
 
-                  <div className="h-px w-12 bg-slate-700"></div>
+                 <g transform="translate(300, 170)">
+                     <rect x="0" y="0" width="100" height="60" rx="6" fill="#eff6ff" stroke="#3b82f6" strokeWidth="2"/>
+                     <text x="50" y="35" textAnchor="middle" className="text-xs font-bold fill-blue-800">物理表</text>
+                 </g>
 
-                  {/* Object */}
-                  <div className="text-center">
-                      <div className="w-20 h-20 bg-blue-900/50 rounded-xl border-2 border-blue-600 flex items-center justify-center mx-auto mb-2 text-blue-400 relative shadow-[0_0_20px_rgba(37,99,235,0.3)]">
-                          <Box size={32} />
-                          <div className="absolute -top-2 -right-2 w-4 h-4 bg-red-500 rounded-full border-2 border-slate-900"></div>
-                      </div>
-                      <div className="text-xs text-blue-400 font-bold">Business Object</div>
-                  </div>
+                 <g transform="translate(550, 120)">
+                     <rect x="0" y="0" width="100" height="60" rx="6" fill="#f5f3ff" stroke="#8b5cf6" strokeWidth="2"/>
+                     <text x="50" y="35" textAnchor="middle" className="text-xs font-bold fill-purple-800">业务对象</text>
+                 </g>
 
-                  <div className="h-px w-12 bg-slate-700"></div>
-
-                  {/* API */}
-                   <div className="text-center">
-                      <div className="w-16 h-16 bg-purple-900/50 rounded-full border-2 border-purple-600 flex items-center justify-center mx-auto mb-2 text-purple-400">
-                          <Globe size={24} />
-                      </div>
-                      <div className="text-xs text-purple-400">API</div>
-                  </div>
-             </div>
-             
-             <div className="absolute bottom-4 right-4 bg-slate-800 p-2 rounded text-xs text-slate-400">
-                 Lineage Graph (Canvas Placeholder)
-             </div>
+                 <g transform="translate(550, 220)">
+                     <rect x="0" y="0" width="100" height="60" rx="6" fill="#fff7ed" stroke="#f97316" strokeWidth="2"/>
+                     <text x="50" y="35" textAnchor="middle" className="text-xs font-bold fill-orange-800">API 服务</text>
+                 </g>
+            </svg>
         </div>
     </div>
 );
 
-// ==========================================
-// 4. 主应用程序
-// ==========================================
-
-export default function SemanticLayerApp() {
+const SemanticLayerApp = () => {
     const [activeModule, setActiveModule] = useState('dashboard');
+    const [showAssistant, setShowAssistant] = useState(false);
+    
+    // Global State (mocked)
     const [businessObjects, setBusinessObjects] = useState(mockBusinessObjects);
     const [dataSources, setDataSources] = useState(mockDataSources);
-    const [selectedBO, setSelectedBO] = useState(mockBusinessObjects[0]);
-    const [showRuleEditor, setShowRuleEditor] = useState(null);
-    const [candidates, setCandidates] = useState(mockAICandidates);
-    const [showAssistant, setShowAssistant] = useState(false); // Default hidden
+    const [candidates, setCandidates] = useState(mockAICandidates); // Add Candidates State
+    const [selectedBO, setSelectedBO] = useState(null);
+
+    const contextData = {
+        businessObjects,
+        dataSources,
+        candidates
+    };
 
     const renderContent = () => {
         switch (activeModule) {
             case 'dashboard': return <DashboardView setActiveModule={setActiveModule} />;
             case 'td_goals': return <BusinessGoalsView setActiveModule={setActiveModule} />;
-            case 'td_modeling': return <BusinessModelingView businessObjects={businessObjects} setBusinessObjects={setBusinessObjects} />;
+            case 'td_modeling': return <BusinessModelingView businessObjects={businessObjects} setBusinessObjects={setBusinessObjects} selectedBO={selectedBO} setSelectedBO={setSelectedBO} />;
             case 'td_scenario': return <ScenarioOrchestrationView businessObjects={businessObjects} />;
             case 'bu_connect': return <DataSourceManagementView dataSources={dataSources} setDataSources={setDataSources} />;
             case 'bu_discovery': return <AssetScanningView setActiveModule={setActiveModule} candidates={candidates} />;
             case 'bu_semantics': return <DataSemanticUnderstandingView setActiveModule={setActiveModule} businessObjects={businessObjects} setBusinessObjects={setBusinessObjects} />;
-            case 'bu_candidates': return <CandidateGenerationView businessObjects={businessObjects} setBusinessObjects={setBusinessObjects} candidates={candidates} setCandidates={setCandidates} />;
-            case 'mapping': return <MappingStudioView selectedBO={selectedBO} />;
+            case 'bu_candidates': return <CandidateGenerationView 
+                                            candidates={candidates} 
+                                            setCandidates={setCandidates} 
+                                            setBusinessObjects={setBusinessObjects}
+                                            setActiveModule={setActiveModule}
+                                            setSelectedBO={setSelectedBO}
+                                          />;
+            case 'mapping': return <MappingStudioView selectedBO={selectedBO || businessObjects[0]} />;
             case 'governance': return <ConflictDetectionView setActiveModule={setActiveModule} />;
             case 'catalog': return <DataCatalogView />;
             case 'ee_api': return <ApiGatewayView />;
             case 'ee_cache': return <CacheStrategyView />;
             case 'lineage': return <DataLineageView />;
-            default: return <DashboardView setActiveModule={setActiveModule} />;
+            default: return (
+                <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                        <Hammer size={32} />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-600">Module Under Construction</h3>
+                    <p className="text-sm">The module '{activeModule}' is currently being built.</p>
+                </div>
+            );
         }
     };
 
     return (
-        <div className="flex h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
+        <div className="flex h-screen bg-slate-50 font-sans text-slate-800 overflow-hidden">
             <Sidebar activeModule={activeModule} setActiveModule={setActiveModule} />
             <div className="flex-1 flex flex-col min-w-0">
                 <Header activeModule={activeModule} showAssistant={showAssistant} setShowAssistant={setShowAssistant} />
-                <div className="flex-1 flex overflow-hidden relative">
-                    <main className="flex-1 overflow-auto p-6 relative">
-                        {renderContent()}
-                    </main>
-                    <AIAssistantPanel 
-                        visible={showAssistant} 
-                        onClose={() => setShowAssistant(false)} 
-                        activeModule={activeModule}
-                        contextData={{ businessObjects, dataSources, candidates }}
-                    />
-                </div>
+                <main className="flex-1 overflow-y-auto p-6 relative">
+                     {renderContent()}
+                </main>
             </div>
+            <AIAssistantPanel 
+                visible={showAssistant} 
+                onClose={() => setShowAssistant(false)} 
+                activeModule={activeModule}
+                contextData={contextData}
+            />
         </div>
     );
-}
+};
+
+export default SemanticLayerApp;
