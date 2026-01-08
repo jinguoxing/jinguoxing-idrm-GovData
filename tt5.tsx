@@ -13,7 +13,7 @@ import {
     Thermometer, Timer, BarChart3, Eraser, GitBranch, Network,
     BrainCircuit, Gauge, FileDigit, List, Bot, Send, MessageSquare, BadgeCheck,
     ChevronDown, ChevronUp, GripVertical, Folder, Check, MessageCircle, ToggleLeft, ToggleRight,
-    PanelLeftClose, PanelLeftOpen
+    PanelLeftClose, PanelLeftOpen, Key
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
@@ -2050,18 +2050,23 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
     const [expandedSources, setExpandedSources] = useState(new Set(dataSources.map((ds: any) => ds.id)));
     const [expandedTypes, setExpandedTypes] = useState(new Set(dataSources.map((ds: any) => ds.type)));
     const [searchTerm, setSearchTerm] = useState("");
+    const [viewMode, setViewMode] = useState<'source' | 'cluster'>('source');
     
     // Enrich mock assets with sourceId if not present (handled in global mock data, ensuring here)
     const selectedTable = scanAssets.find((t: any) => t.id === selectedTableId) as any;
     const selectedDataSource = dataSources.find((ds: any) => ds.id === selectedTable?.sourceId);
 
     // State for the AI result being viewed/edited
-    // If the table already has a semantic profile (saved), load it. Otherwise, use temporary AI result.
     interface SemanticProfile {
         businessName: string;
         description: string;
         scenarios: string[];
-        coreFields: { field: string; reason: string }[];
+        coreFields: { 
+            field: string; 
+            reason: string;
+            semanticType?: string; // 'PK', 'EventTime', 'Status', 'Measure', 'Dimension'
+        }[];
+        clusterSuggestion?: string;
         [key: string]: any;
     }
 
@@ -2122,7 +2127,11 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
             - description: 详细的业务含义描述 (50字左右)
             - scenarios: 适用的业务场景列表 (数组)
             - tags: 业务标签 (数组)
-            - coreFields: 核心业务字段说明 (数组，包含 {field, reason})
+            - coreFields: 核心业务字段说明 (数组)。对象包含:
+               - field: 字段名
+               - reason: 识别原因
+               - semanticType: 枚举值 ["PK", "EventTime", "Status", "Measure", "Dimension"]。PK=唯一标识/主键, EventTime=关键业务发生时间。
+            - clusterSuggestion: 基于表名和内容的建议业务聚类名称 (例如: "出生一件事", "疫苗管理", "基础资源")
             `;
 
             const response = await ai.models.generateContent({
@@ -2150,7 +2159,7 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
         if (exists) {
             newCoreFields = editableResult.coreFields?.filter((cf: any) => cf.field !== columnName) || [];
         } else {
-            newCoreFields = [...(editableResult.coreFields || []), { field: columnName, reason: defaultReason || '关键业务属性' }];
+            newCoreFields = [...(editableResult.coreFields || []), { field: columnName, reason: defaultReason || '关键业务属性', semanticType: 'Dimension' }];
         }
         setEditableResult({ ...editableResult, coreFields: newCoreFields });
     };
@@ -2245,6 +2254,45 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
         }, {} as Record<string, typeof sourcesWithTables>)
     ).map(([type, sources]) => ({ type, sources: sources as typeof sourcesWithTables }));
 
+    // Helper to guess cluster based on name (mocking what AI might do globally)
+    const getSimpleClusterName = (tableName: string) => {
+        const lower = tableName.toLowerCase();
+        if (lower.includes('newborn') || lower.includes('birth') || lower.includes('pop')) return '出生一件事 (Birth Event)';
+        if (lower.includes('vac')) return '疫苗管理 (Vaccine)';
+        if (lower.includes('hosp') || lower.includes('dict')) return '基础资源 (Resources)';
+        if (lower.includes('order')) return '电商业务 (E-commerce)';
+        if (lower.includes('user')) return '用户中心 (User Center)';
+        return '未分类 (Uncategorized)';
+    };
+
+    // Flatten assets for cluster grouping logic
+    const allTablesFlat = dataSources.flatMap((ds: any) => 
+        scanAssets
+            .filter((asset: any) => asset.sourceId === ds.id)
+            .filter((asset: any) => 
+                asset.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                asset.comment.toLowerCase().includes(searchTerm.toLowerCase())
+            )
+            .map((t: any) => ({...t, sourceName: ds.name, type: ds.type}))
+    );
+
+    const groupedClusterData = Object.entries(
+        allTablesFlat.reduce((acc: any, t: any) => {
+            // Use saved cluster or heuristic
+            const cluster = t.semanticProfile?.clusterSuggestion || getSimpleClusterName(t.name);
+            if (!acc[cluster]) acc[cluster] = [];
+            acc[cluster].push(t);
+            return acc;
+        }, {} as Record<string, typeof allTablesFlat>)
+    ).map(([cluster, tables]) => ({ cluster, tables: tables as any[] }));
+
+    // Helper for semantic icons
+    const getSemanticIcon = (type?: string) => {
+        if (type === 'PK') return <Key size={12} className="text-amber-500 flex-shrink-0" />;
+        if (type === 'EventTime') return <Clock size={12} className="text-blue-500 flex-shrink-0" />;
+        return null;
+    };
+
     return (
         <div className="space-y-6 h-full flex flex-col">
             <div className="flex justify-between items-center shrink-0">
@@ -2264,7 +2312,7 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                 {/* Left: Tree View of Data Sources & Tables */}
                 <div className="w-80 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
                     <div className="p-4 border-b border-slate-100 bg-slate-50">
-                        <div className="relative">
+                        <div className="relative mb-3">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                             <input 
                                 type="text" 
@@ -2274,73 +2322,124 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                 className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500/20" 
                             />
                         </div>
+                        <div className="flex bg-slate-200 p-0.5 rounded-lg">
+                            <button 
+                                onClick={() => setViewMode('source')}
+                                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1 ${viewMode === 'source' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                <Database size={12} /> 按数据源
+                            </button>
+                            <button 
+                                onClick={() => setViewMode('cluster')}
+                                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1 ${viewMode === 'cluster' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                <Folder size={12} /> 智能聚类
+                            </button>
+                        </div>
                     </div>
                     <div className="flex-1 overflow-y-auto custom-scrollbar">
-                        {groupedTreeData.map(group => (
-                            <div key={group.type} className="border-b border-slate-100 last:border-0">
-                                {/* Type Header */}
-                                <div 
-                                    onClick={() => toggleType(group.type)}
-                                    className="flex items-center justify-between px-4 py-2.5 bg-slate-50/80 cursor-pointer hover:bg-slate-100 transition-colors border-b border-slate-50"
-                                >
-                                     <div className="flex items-center gap-2">
-                                         <Layers size={14} className="text-slate-400" />
-                                         <span className="font-bold text-xs text-slate-600 uppercase tracking-wide">{group.type}</span>
-                                     </div>
-                                     {expandedTypes.has(group.type) ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
-                                </div>
+                        {viewMode === 'source' ? (
+                            groupedTreeData.map(group => (
+                                <div key={group.type} className="border-b border-slate-100 last:border-0">
+                                    <div 
+                                        onClick={() => toggleType(group.type)}
+                                        className="flex items-center justify-between px-4 py-2.5 bg-slate-50/80 cursor-pointer hover:bg-slate-100 transition-colors border-b border-slate-50"
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <Layers size={14} className="text-slate-400" />
+                                            <span className="font-bold text-xs text-slate-600 uppercase tracking-wide">{group.type}</span>
+                                        </div>
+                                        {expandedTypes.has(group.type) ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+                                    </div>
 
-                                {expandedTypes.has(group.type) && (
-                                    <div>
-                                        {group.sources.map(ds => (
-                                            <div key={ds.id} className="border-b border-slate-50 last:border-0">
-                                                <div 
-                                                    onClick={() => toggleSource(ds.id)}
-                                                    className="flex items-center justify-between px-4 py-2 pl-8 cursor-pointer hover:bg-slate-50 transition-colors group"
-                                                >
-                                                    <div className="flex items-center gap-2 overflow-hidden">
-                                                        <Database size={14} className="text-blue-500 flex-shrink-0" />
-                                                        <span className="text-sm text-slate-700 truncate" title={ds.name}>{ds.name}</span>
+                                    {expandedTypes.has(group.type) && (
+                                        <div>
+                                            {group.sources.map(ds => (
+                                                <div key={ds.id} className="border-b border-slate-50 last:border-0">
+                                                    <div 
+                                                        onClick={() => toggleSource(ds.id)}
+                                                        className="flex items-center justify-between px-4 py-2 pl-8 cursor-pointer hover:bg-slate-50 transition-colors group"
+                                                    >
+                                                        <div className="flex items-center gap-2 overflow-hidden">
+                                                            <Database size={14} className="text-blue-500 flex-shrink-0" />
+                                                            <span className="text-sm text-slate-700 truncate" title={ds.name}>{ds.name}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                                            <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 rounded-full">{ds.tables.length}</span>
+                                                            {expandedSources.has(ds.id) ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+                                                        </div>
                                                     </div>
-                                                    <div className="flex items-center gap-2 flex-shrink-0">
-                                                        <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 rounded-full">{ds.tables.length}</span>
-                                                        {expandedSources.has(ds.id) ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+
+                                                    {expandedSources.has(ds.id) && (
+                                                        <div className="bg-slate-50/30 pb-2">
+                                                            {ds.tables.map(t => (
+                                                                <div 
+                                                                    key={t.id} 
+                                                                    onClick={() => setSelectedTableId(t.id)}
+                                                                    className={`pl-14 pr-4 py-2 cursor-pointer flex items-center justify-between group transition-all ${
+                                                                        selectedTableId === t.id 
+                                                                        ? 'bg-pink-50 border-r-2 border-pink-500 text-pink-700' 
+                                                                        : 'hover:bg-slate-100 border-r-2 border-transparent text-slate-600'
+                                                                    }`}
+                                                                >
+                                                                    <div className="flex items-center gap-2 min-w-0">
+                                                                        <Table size={14} className={selectedTableId === t.id ? 'text-pink-500' : 'text-slate-400'} />
+                                                                        <span className={`text-sm truncate ${selectedTableId === t.id ? 'font-medium' : ''}`} title={t.name}>{t.name}</span>
+                                                                    </div>
+                                                                    {t.isSemanticEnriched ? (
+                                                                        <BrainCircuit size={14} className="text-emerald-500 flex-shrink-0" title="已语义化" />
+                                                                    ) : null}
+                                                                </div>
+                                                            ))}
+                                                            {ds.tables.length === 0 && (
+                                                                <div className="pl-14 pr-4 py-2 text-xs text-slate-400 italic">未找到匹配的表</div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            ))
+                        ) : (
+                            groupedClusterData.map(group => (
+                                <div key={group.cluster} className="border-b border-slate-100 last:border-0">
+                                    <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-50">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <Folder size={14} className="text-indigo-400" />
+                                            <span className="font-bold text-xs text-indigo-900 uppercase tracking-wide">{group.cluster}</span>
+                                        </div>
+                                        <div className="text-[10px] text-slate-400 pl-6">{group.tables.length} tables found</div>
+                                    </div>
+                                    <div className="bg-slate-50/30 pb-2">
+                                        {group.tables.map(t => (
+                                            <div 
+                                                key={t.id} 
+                                                onClick={() => setSelectedTableId(t.id)}
+                                                className={`pl-8 pr-4 py-2 cursor-pointer flex items-center justify-between group transition-all ${
+                                                    selectedTableId === t.id 
+                                                    ? 'bg-pink-50 border-r-2 border-pink-500 text-pink-700' 
+                                                    : 'hover:bg-slate-100 border-r-2 border-transparent text-slate-600'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <Table size={14} className={selectedTableId === t.id ? 'text-pink-500' : 'text-slate-400'} />
+                                                    <div className="min-w-0">
+                                                        <div className={`text-sm truncate ${selectedTableId === t.id ? 'font-medium' : ''}`} title={t.name}>{t.name}</div>
+                                                        <div className="text-[10px] text-slate-400 truncate">{t.sourceName}</div>
                                                     </div>
                                                 </div>
-
-                                                {expandedSources.has(ds.id) && (
-                                                    <div className="bg-slate-50/30 pb-2">
-                                                        {ds.tables.map(t => (
-                                                            <div 
-                                                                key={t.id} 
-                                                                onClick={() => setSelectedTableId(t.id)}
-                                                                className={`pl-14 pr-4 py-2 cursor-pointer flex items-center justify-between group transition-all ${
-                                                                    selectedTableId === t.id 
-                                                                    ? 'bg-pink-50 border-r-2 border-pink-500 text-pink-700' 
-                                                                    : 'hover:bg-slate-100 border-r-2 border-transparent text-slate-600'
-                                                                }`}
-                                                            >
-                                                                <div className="flex items-center gap-2 min-w-0">
-                                                                    <Table size={14} className={selectedTableId === t.id ? 'text-pink-500' : 'text-slate-400'} />
-                                                                    <span className={`text-sm truncate ${selectedTableId === t.id ? 'font-medium' : ''}`} title={t.name}>{t.name}</span>
-                                                                </div>
-                                                                {t.isSemanticEnriched ? (
-                                                                     <BrainCircuit size={14} className="text-emerald-500 flex-shrink-0" title="已语义化" />
-                                                                ) : null}
-                                                            </div>
-                                                        ))}
-                                                        {ds.tables.length === 0 && (
-                                                            <div className="pl-14 pr-4 py-2 text-xs text-slate-400 italic">未找到匹配的表</div>
-                                                        )}
-                                                    </div>
-                                                )}
+                                                {t.isSemanticEnriched ? (
+                                                    <BrainCircuit size={14} className="text-emerald-500 flex-shrink-0" title="已语义化" />
+                                                ) : null}
                                             </div>
                                         ))}
                                     </div>
-                                )}
-                            </div>
-                        ))}
-                        {groupedTreeData.length === 0 && (
+                                </div>
+                            ))
+                        )}
+                        {(viewMode === 'source' ? groupedTreeData : groupedClusterData).length === 0 && (
                              <div className="p-8 text-center text-slate-400 text-sm">
                                 <Database size={32} className="mx-auto mb-2 opacity-20" />
                                 未找到匹配的数据资产
@@ -2439,6 +2538,13 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                              <div className="text-xl font-bold text-slate-800 mt-1">{editableResult?.businessName}</div>
                                          )}
                                      </div>
+
+                                     {/* Cluster Suggestion Display */}
+                                     {editableResult?.clusterSuggestion && !editMode && (
+                                         <div className="inline-flex items-center gap-1 px-2 py-1 bg-indigo-50 text-indigo-700 text-xs rounded border border-indigo-100">
+                                             <Folder size={12} /> 所属聚类: <b>{editableResult.clusterSuggestion}</b>
+                                         </div>
+                                     )}
                                      
                                      <div>
                                          <label className="text-xs font-bold text-purple-400 uppercase tracking-wider">业务含义描述</label>
@@ -2503,10 +2609,12 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                                                   
                                                                   <span className={`text-xs font-mono truncate ${isCore ? 'font-bold text-purple-900' : 'text-slate-600'}`} title={col.name}>{col.name}</span>
                                                                   <span className="text-[10px] text-slate-400 truncate flex-1">{col.type}</span>
+                                                                  {/* Semantic Type Icon in Edit Mode */}
+                                                                  {isCore && getSemanticIcon(coreField?.semanticType)}
                                                               </div>
                                                               
                                                               {isCore && (
-                                                                  <div className="mt-2 pl-10">
+                                                                  <div className="mt-2 pl-10 space-y-2">
                                                                       <input 
                                                                           value={coreField?.reason || ''}
                                                                           onChange={(e) => updateCoreFieldReason(col.name, e.target.value)}
@@ -2523,6 +2631,8 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                               <ul className="mt-2 space-y-2">
                                                   {(editableResult as any)?.coreFields?.map((f: any, i: number) => (
                                                       <li key={i} className="text-xs flex gap-2 items-start">
+                                                          {/* Icon for semantic type */}
+                                                          <div className="mt-0.5">{getSemanticIcon(f.semanticType)}</div>
                                                           <span className="font-mono font-bold text-slate-700 bg-white border border-purple-100 px-1 rounded">{f.field}</span>
                                                           <span className="text-slate-500">- {f.reason}</span>
                                                       </li>
@@ -2571,77 +2681,107 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
 
 const SemanticLayerApp = () => {
     const [activeModule, setActiveModule] = useState('dashboard');
+    const [isCollapsed, setIsCollapsed] = useState(false);
     const [showAssistant, setShowAssistant] = useState(false);
-    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-    
-    // Global State (mocked)
+
+    // Global Data State
     const [businessObjects, setBusinessObjects] = useState(mockBusinessObjects);
     const [dataSources, setDataSources] = useState(mockDataSources);
-    const [candidates, setCandidates] = useState(mockAICandidates); // Add Candidates State
-    const [scanAssets, setScanAssets] = useState(mockScanAssets); // Lifted state for assets
-    const [selectedBO, setSelectedBO] = useState(null);
+    const [scanAssets, setScanAssets] = useState(mockScanAssets);
+    const [candidates, setCandidates] = useState(mockAICandidates);
+    const [selectedBO, setSelectedBO] = useState<any>(null);
 
+    // Render content based on active module
     const renderContent = () => {
         switch (activeModule) {
-            case 'dashboard': return <DashboardView setActiveModule={setActiveModule} />;
-            case 'td_goals': return <BusinessGoalsView setActiveModule={setActiveModule} />;
-            case 'td_modeling': return <BusinessModelingView businessObjects={businessObjects} setBusinessObjects={setBusinessObjects} selectedBO={selectedBO} setSelectedBO={setSelectedBO} />;
-            case 'td_scenario': return <ScenarioOrchestrationView businessObjects={businessObjects} />;
-            case 'bu_connect': return <DataSourceManagementView dataSources={dataSources} setDataSources={setDataSources} />;
-            case 'bu_discovery': return <AssetScanningView setActiveModule={setActiveModule} candidates={candidates} scanAssets={scanAssets} />;
-            case 'bu_semantics': return <DataSemanticUnderstandingView setActiveModule={setActiveModule} businessObjects={businessObjects} setBusinessObjects={setBusinessObjects} dataSources={dataSources} scanAssets={scanAssets} setScanAssets={setScanAssets} />;
-            case 'bu_candidates': return <CandidateGenerationView 
-                                            candidates={candidates} 
-                                            setCandidates={setCandidates} 
-                                            setBusinessObjects={setBusinessObjects}
-                                            setActiveModule={setActiveModule}
-                                            setSelectedBO={setSelectedBO}
-                                          />;
-            case 'mapping': return <MappingStudioView selectedBO={selectedBO || businessObjects[0]} />;
-            case 'governance': return <ConflictDetectionView setActiveModule={setActiveModule} />;
-            case 'catalog': return <DataCatalogView />;
-            case 'ee_api': return <ApiGatewayView />;
-            case 'ee_cache': return <CacheStrategyView />;
-            case 'lineage': return <DataLineageView />;
-            default: return (
-                <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                        <Hammer size={32} />
-                    </div>
-                    <h3 className="text-lg font-bold text-slate-600">Module Under Construction</h3>
-                    <p className="text-sm">The module '{activeModule}' is currently being built.</p>
-                </div>
-            );
+            case 'dashboard':
+                return <DashboardView setActiveModule={setActiveModule} />;
+            case 'td_goals':
+                return <BusinessGoalsView setActiveModule={setActiveModule} />;
+            case 'td_modeling':
+                return <BusinessModelingView 
+                        businessObjects={businessObjects} 
+                        setBusinessObjects={setBusinessObjects}
+                        selectedBO={selectedBO}
+                        setSelectedBO={setSelectedBO}
+                       />;
+            case 'td_scenario':
+                return <ScenarioOrchestrationView businessObjects={businessObjects} />;
+            case 'bu_connect':
+                return <DataSourceManagementView dataSources={dataSources} setDataSources={setDataSources} />;
+            case 'bu_discovery':
+                return <AssetScanningView 
+                        setActiveModule={setActiveModule} 
+                        candidates={candidates}
+                        scanAssets={scanAssets}
+                       />;
+            case 'bu_candidates':
+                return <CandidateGenerationView 
+                        candidates={candidates} 
+                        setCandidates={setCandidates} 
+                        setBusinessObjects={setBusinessObjects}
+                        setActiveModule={setActiveModule}
+                        setSelectedBO={setSelectedBO}
+                       />;
+            case 'bu_semantics':
+                return <DataSemanticUnderstandingView 
+                         setActiveModule={setActiveModule}
+                         businessObjects={businessObjects}
+                         setBusinessObjects={setBusinessObjects}
+                         dataSources={dataSources}
+                         scanAssets={scanAssets}
+                         setScanAssets={setScanAssets}
+                       />;
+            case 'mapping':
+                return <MappingStudioView selectedBO={selectedBO} />;
+            case 'governance':
+                return <ConflictDetectionView setActiveModule={setActiveModule} />;
+            case 'catalog':
+                return <DataCatalogView />;
+            case 'ee_api':
+                return <ApiGatewayView />;
+            case 'ee_cache':
+                return <CacheStrategyView />;
+            case 'lineage':
+                return <DataLineageView />;
+            default:
+                return <div className="p-10 text-center text-slate-400">Module {activeModule} under construction</div>;
         }
     };
 
     return (
-        <div className="flex h-screen bg-slate-50 font-sans text-slate-800 overflow-hidden">
+        <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
             <Sidebar 
                 activeModule={activeModule} 
                 setActiveModule={setActiveModule} 
-                isCollapsed={isSidebarCollapsed}
-                setIsCollapsed={setIsSidebarCollapsed}
+                isCollapsed={isCollapsed} 
+                setIsCollapsed={setIsCollapsed} 
             />
+            
             <div className="flex-1 flex flex-col min-w-0">
-                <Header activeModule={activeModule} showAssistant={showAssistant} setShowAssistant={setShowAssistant} />
-                <main className="flex-1 overflow-hidden relative">
-                    <div className="absolute inset-0 p-6 overflow-hidden">
-                        {renderContent()}
-                    </div>
-                     <div className={`absolute top-0 right-0 bottom-0 z-40 transform transition-transform duration-300 ${showAssistant ? 'translate-x-0' : 'translate-x-full'}`}>
-                        <AIAssistantPanel 
-                            visible={showAssistant} 
-                            onClose={() => setShowAssistant(false)} 
-                            activeModule={activeModule}
-                            contextData={{
-                                businessObjects,
-                                dataSources,
-                                candidates: mockAICandidates
-                            }}
-                        />
-                    </div>
+                <Header 
+                    activeModule={activeModule} 
+                    showAssistant={showAssistant} 
+                    setShowAssistant={setShowAssistant} 
+                />
+                
+                <main className="flex-1 overflow-y-auto p-6 relative custom-scrollbar">
+                    {renderContent()}
                 </main>
+            </div>
+
+            {/* AI Assistant Side Panel */}
+            <div className={`fixed inset-y-0 right-0 transform transition-transform duration-300 ease-in-out z-50 shadow-2xl ${showAssistant ? 'translate-x-0' : 'translate-x-full'}`}>
+                 <AIAssistantPanel 
+                    visible={showAssistant} 
+                    onClose={() => setShowAssistant(false)}
+                    activeModule={activeModule}
+                    contextData={{
+                        businessObjects,
+                        dataSources,
+                        candidates
+                    }}
+                 />
             </div>
         </div>
     );
