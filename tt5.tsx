@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import {
     Layout, Database, GitMerge, Server, Layers,
@@ -13,7 +12,8 @@ import {
     Book, Tag, User, Clock, Star, Terminal, Globe, Copy,
     Thermometer, Timer, BarChart3, Eraser, GitBranch, Network,
     BrainCircuit, Gauge, FileDigit, List, Bot, Send, MessageSquare, BadgeCheck,
-    ChevronDown, ChevronUp, GripVertical, Folder, Check, MessageCircle
+    ChevronDown, ChevronUp, GripVertical, Folder, Check, MessageCircle, ToggleLeft, ToggleRight,
+    PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
@@ -442,8 +442,8 @@ const mockLineage = {
 // 2. 辅助小组件 (Utility Components)
 // ==========================================
 
-const StatCard = ({ label, value, trend, icon: Icon, color }) => {
-    const colorMap = {
+const StatCard = ({ label, value, trend, icon: Icon, color }: any) => {
+    const colorMap: any = {
         blue: "text-blue-600 bg-blue-50 border-blue-200",
         emerald: "text-emerald-600 bg-emerald-50 border-emerald-200",
         purple: "text-purple-600 bg-purple-50 border-purple-200",
@@ -474,7 +474,7 @@ const StatCard = ({ label, value, trend, icon: Icon, color }) => {
     );
 };
 
-const StepItem = ({ status, text }) => (
+const StepItem = ({ status, text }: any) => (
     <div className="flex items-center gap-3">
         {status === 'done' ? (
             <div className="min-w-[20px] h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
@@ -487,7 +487,7 @@ const StepItem = ({ status, text }) => (
     </div>
 );
 
-const BookIcon = ({ size, className }) => (
+const BookIcon = ({ size, className }: any) => (
     <svg
         xmlns="http://www.w3.org/2000/svg"
         width={size}
@@ -505,7 +505,7 @@ const BookIcon = ({ size, className }) => (
     </svg>
 );
 
-const ScoreBar = ({ label, score }) => (
+const ScoreBar = ({ label, score }: any) => (
     <div className="flex items-center gap-3">
         <span className="text-xs text-slate-500 w-24 text-right">{label}</span>
         <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
@@ -519,7 +519,7 @@ const ScoreBar = ({ label, score }) => (
 // 3. 布局组件 (Layout Components)
 // ==========================================
 
-const Sidebar = ({ activeModule, setActiveModule }) => {
+const Sidebar = ({ activeModule, setActiveModule, isCollapsed, setIsCollapsed }: any) => {
     const menus = [
         { title: '概览', items: [{ id: 'dashboard', label: '控制台 Dashboard', icon: Activity }] },
         {
@@ -537,7 +537,7 @@ const Sidebar = ({ activeModule, setActiveModule }) => {
             items: [
                 { id: 'bu_connect', label: '数据源管理 (BU-01)', icon: Database },
                 { id: 'bu_discovery', label: '资产扫描 (BU-02)', icon: Scan },
-                { id: 'bu_semantics', label: '数据语义理解 (BU-03)', icon: BrainCircuit },
+                { id: 'bu_semantics', label: '逻辑视图 (BU-03)', icon: BrainCircuit },
                 { id: 'bu_candidates', label: '候选生成 (BU-04)', icon: Sparkles },
             ]
         },
@@ -562,36 +562,46 @@ const Sidebar = ({ activeModule, setActiveModule }) => {
     ];
 
     return (
-        <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shadow-xl z-20 flex-shrink-0">
-            <div className="h-16 flex items-center px-6 border-b border-slate-800">
-                <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center mr-3">
-                    <Link className="text-white" size={18} />
-                </div>
-                <div>
-                    <h1 className="font-bold text-white tracking-tight">SemanticLink</h1>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-wider">Enterprise Edition</p>
+        <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shadow-xl z-20 flex-shrink-0 transition-all duration-300`}>
+            {/* Header */}
+            <div className="h-16 flex items-center px-4 border-b border-slate-800 justify-between overflow-hidden">
+                <div className={`flex items-center ${isCollapsed ? 'justify-center w-full' : ''}`}>
+                    <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <Link className="text-white" size={18} />
+                    </div>
+                    {!isCollapsed && (
+                        <div className="ml-3 animate-fade-in whitespace-nowrap">
+                            <h1 className="font-bold text-white tracking-tight">SemanticLink</h1>
+                            <p className="text-[10px] text-slate-500 uppercase tracking-wider">Enterprise Edition</p>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto py-4 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto py-4 custom-scrollbar overflow-x-hidden">
                 {menus.map((group, idx) => (
-                    <div key={idx} className="mb-6 px-4">
-                        <h3 className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${group.color || 'text-slate-500'}`}>
-                            {group.title}
-                        </h3>
+                    <div key={idx} className={`mb-6 ${isCollapsed ? 'px-2' : 'px-4'}`}>
+                        {!isCollapsed ? (
+                            <h3 className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${group.color || 'text-slate-500'} animate-fade-in`}>
+                                {group.title}
+                            </h3>
+                        ) : (
+                            <div className="h-4"></div> /* Spacer when collapsed */
+                        )}
                         <div className="space-y-1">
                             {group.items.map(item => (
                                 <button
                                     key={item.id}
                                     onClick={() => setActiveModule(item.id)}
-                                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-all duration-200 ${activeModule === item.id
+                                    title={isCollapsed ? item.label : ''}
+                                    className={`w-full flex items-center ${isCollapsed ? 'justify-center px-0' : 'gap-3 px-3'} py-2 rounded-md text-sm transition-all duration-200 ${activeModule === item.id
                                             ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700'
                                             : 'hover:bg-slate-800/50 hover:text-white'
                                         }`}
                                 >
-                                    <item.icon size={16} strokeWidth={1.5} />
-                                    <span>{item.label}</span>
-                                    {activeModule === item.id && <ChevronRight size={14} className="ml-auto opacity-50" />}
+                                    <item.icon size={20} strokeWidth={1.5} className={activeModule === item.id && isCollapsed ? group.color?.replace('text-', 'text-') : ''} />
+                                    {!isCollapsed && <span className="animate-fade-in whitespace-nowrap">{item.label}</span>}
+                                    {!isCollapsed && activeModule === item.id && <ChevronRight size={14} className="ml-auto opacity-50" />}
                                 </button>
                             ))}
                         </div>
@@ -599,30 +609,41 @@ const Sidebar = ({ activeModule, setActiveModule }) => {
                 ))}
             </div>
 
-            <div className="p-4 border-t border-slate-800 bg-slate-900/50">
-                <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs text-white">
+            {/* Footer with Toggle & Profile */}
+            <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-4">
+                 <button 
+                    onClick={() => setIsCollapsed(!isCollapsed)}
+                    className="flex items-center justify-center p-2 rounded-lg hover:bg-slate-800 text-slate-500 hover:text-white transition-colors"
+                    title={isCollapsed ? "Expand Menu" : "Collapse Menu"}
+                >
+                    {isCollapsed ? <PanelLeftOpen size={20} /> : <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider"><PanelLeftClose size={16} /> <span>Collapse Menu</span></div>}
+                </button>
+
+                <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'}`}>
+                    <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs text-white flex-shrink-0">
                         JD
                     </div>
-                    <div className="flex-1">
-                        <div className="text-sm font-medium text-white">John Doe</div>
-                        <div className="text-xs text-slate-500">Chief Data Architect</div>
-                    </div>
+                    {!isCollapsed && (
+                        <div className="flex-1 animate-fade-in min-w-0">
+                            <div className="text-sm font-medium text-white truncate">John Doe</div>
+                            <div className="text-xs text-slate-500 truncate">Chief Data Architect</div>
+                        </div>
+                    )}
                 </div>
             </div>
         </aside>
     );
 };
 
-const Header = ({ activeModule, showAssistant, setShowAssistant }) => {
-    const getTitle = (id) => {
+const Header = ({ activeModule, showAssistant, setShowAssistant }: any) => {
+    const getTitle = (id: any) => {
         switch (id) {
             case 'td_goals': return '业务梳理';
             case 'td_modeling': return '业务对象建模';
             case 'td_scenario': return '场景编排';
             case 'bu_connect': return '数据源管理';
             case 'bu_discovery': return '资产扫描';
-            case 'bu_semantics': return '数据语义理解';
+            case 'bu_semantics': return '逻辑视图';
             case 'bu_candidates': return '候选生成';
             case 'mapping': return '映射工作台';
             case 'governance': return '冲突检测与治理';
@@ -670,11 +691,11 @@ const Header = ({ activeModule, showAssistant, setShowAssistant }) => {
 // 4. AI Assistant Component
 // ==========================================
 
-const AIAssistantPanel = ({ visible, onClose, activeModule, contextData }) => {
+const AIAssistantPanel = ({ visible, onClose, activeModule, contextData }: any) => {
     const [messages, setMessages] = useState<any[]>([]);
     const [inputValue, setInputValue] = useState("");
     const [isLoading, setIsLoading] = useState(false);
-    const messagesEndRef = useRef(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -828,7 +849,7 @@ const SmartAskDataPanel = () => {
     const [messages, setMessages] = useState<any[]>([]);
     const [input, setInput] = useState('');
     const [isTyping, setIsTyping] = useState(false);
-    const messagesEndRef = useRef(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -936,8 +957,8 @@ const DataCatalogView = () => {
         { label: '映射关系', value: 2, icon: GitMerge, color: 'text-purple-600 bg-purple-50 border-purple-100' },
     ];
 
-    const filterAssets = (assets) => {
-        return assets.filter(asset => {
+    const filterAssets = (assets: any) => {
+        return assets.filter((asset: any) => {
             const matchesTab = 
                 activeTab === 'All' ? true :
                 activeTab === 'Business Object' ? asset.type === 'Business Object' :
@@ -953,7 +974,7 @@ const DataCatalogView = () => {
         });
     };
 
-    const getIcon = (type) => {
+    const getIcon = (type: any) => {
         switch(type) {
             case 'Business Object': return <Box size={20} className="text-blue-600" />;
             case 'Physical Table': return <Database size={20} className="text-emerald-600" />;
@@ -962,7 +983,7 @@ const DataCatalogView = () => {
         }
     };
 
-    const getStatusColor = (status) => {
+    const getStatusColor = (status: any) => {
         switch(status?.toLowerCase()) {
             case 'published': return 'bg-emerald-100 text-emerald-700';
             case 'active': return 'bg-emerald-100 text-emerald-700';
@@ -971,7 +992,7 @@ const DataCatalogView = () => {
         }
     };
 
-    const getStatusText = (status) => {
+    const getStatusText = (status: any) => {
         switch(status?.toLowerCase()) {
             case 'published': return '已发布';
             case 'active': return '活跃';
@@ -1034,7 +1055,7 @@ const DataCatalogView = () => {
 
                 {/* 3. Asset Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-6">
-                    {filterAssets(mockCatalogAssets).map(asset => (
+                    {filterAssets(mockCatalogAssets).map((asset: any) => (
                         <div key={asset.id} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all group cursor-pointer flex flex-col h-full">
                             <div className="flex items-start justify-between mb-3">
                                 <div className="flex items-center gap-3">
@@ -1063,7 +1084,7 @@ const DataCatalogView = () => {
                             </div>
 
                             <div className="flex flex-wrap gap-1 mt-auto pt-3 border-t border-slate-50">
-                                {asset.tags.map(tag => (
+                                {asset.tags.map((tag: any) => (
                                     <span key={tag} className="px-2 py-0.5 bg-slate-50 border border-slate-100 text-slate-500 text-[10px] rounded hover:bg-slate-100 transition-colors">
                                         {tag}
                                     </span>
@@ -1081,7 +1102,7 @@ const DataCatalogView = () => {
 };
 
 // --- 视图 1: 仪表盘 Dashboard ---
-const DashboardView = ({ setActiveModule }) => (
+const DashboardView = ({ setActiveModule }: any) => (
     <div className="space-y-6 max-w-7xl mx-auto animate-fade-in">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <StatCard label="L1 业务对象" value="142" trend="+3" icon={Layout} color="blue" />
@@ -1156,14 +1177,14 @@ const DashboardView = ({ setActiveModule }) => (
     </div>
 );
 
-const CandidateGenerationView = ({ candidates, setCandidates, setBusinessObjects, setActiveModule, setSelectedBO }) => {
+const CandidateGenerationView = ({ candidates, setCandidates, setBusinessObjects, setActiveModule, setSelectedBO }: any) => {
     const [expandedId, setExpandedId] = useState(null);
 
-    const toggleExpand = (id) => {
+    const toggleExpand = (id: any) => {
         setExpandedId(expandedId === id ? null : id);
     };
 
-    const handleAdopt = (cand) => {
+    const handleAdopt = (cand: any) => {
         // Create new Business Object from Candidate
         const newBO = {
             id: `BO_${Date.now()}`,
@@ -1175,7 +1196,7 @@ const CandidateGenerationView = ({ candidates, setCandidates, setBusinessObjects
             version: 'v0.1',
             description: cand.reason,
             sourceTables: [cand.sourceTable],
-            fields: cand.previewFields ? cand.previewFields.map((pf, idx) => ({
+            fields: cand.previewFields ? cand.previewFields.map((pf: any, idx: number) => ({
                 id: `f_${Date.now()}_${idx}`,
                 name: pf.attr,
                 code: pf.col,
@@ -1187,8 +1208,8 @@ const CandidateGenerationView = ({ candidates, setCandidates, setBusinessObjects
         };
 
         // Update state
-        setBusinessObjects(prev => [newBO, ...prev]);
-        setCandidates(prev => prev.filter(c => c.id !== cand.id));
+        setBusinessObjects((prev: any) => [newBO, ...prev]);
+        setCandidates((prev: any) => prev.filter((c: any) => c.id !== cand.id));
         
         // Navigation
         setSelectedBO(newBO);
@@ -1209,7 +1230,7 @@ const CandidateGenerationView = ({ candidates, setCandidates, setBusinessObjects
                         <Sparkles size={48} className="mx-auto mb-4 opacity-50" />
                         <p>暂无新的候选对象</p>
                     </div>
-                ) : candidates.map(cand => (
+                ) : candidates.map((cand: any) => (
                     <div key={cand.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-4 transition-all hover:shadow-md">
                         <div className="flex flex-col md:flex-row gap-6">
                             <div className="flex-1">
@@ -1265,7 +1286,7 @@ const CandidateGenerationView = ({ candidates, setCandidates, setBusinessObjects
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-200">
                                                     {cand.previewFields && cand.previewFields.length > 0 ? (
-                                                        cand.previewFields.map((field, idx) => (
+                                                        cand.previewFields.map((field: any, idx: number) => (
                                                             <tr key={idx}>
                                                                 <td className="px-3 py-2 font-mono text-slate-600">{field.col} <span className="text-slate-400">({field.type})</span></td>
                                                                 <td className="px-3 py-2 font-medium text-slate-800">{field.attr}</td>
@@ -1302,7 +1323,7 @@ const CandidateGenerationView = ({ candidates, setCandidates, setBusinessObjects
     );
 };
 
-const BusinessGoalsView = ({ setActiveModule }) => (
+const BusinessGoalsView = ({ setActiveModule }: any) => (
     <div className="space-y-6 animate-fade-in">
         <div>
             <h2 className="text-2xl font-bold text-slate-800">业务梳理 (Business Goals)</h2>
@@ -1337,8 +1358,8 @@ const BusinessGoalsView = ({ setActiveModule }) => (
     </div>
 );
 
-const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO, setSelectedBO }) => {
-    const [editBO, setEditBO] = useState(null);
+const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO, setSelectedBO }: any) => {
+    const [editBO, setEditBO] = useState<any>(null);
     const [isEditing, setIsEditing] = useState(false);
 
     useEffect(() => {
@@ -1351,7 +1372,7 @@ const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO,
     }, [selectedBO, businessObjects]);
 
     const handleSave = () => {
-        const newObjects = businessObjects.map(bo => bo.id === editBO.id ? editBO : bo);
+        const newObjects = businessObjects.map((bo: any) => bo.id === editBO.id ? editBO : bo);
         setBusinessObjects(newObjects);
         setSelectedBO(editBO);
         alert("业务对象已保存！");
@@ -1359,14 +1380,14 @@ const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO,
 
     const handlePublish = () => {
         const publishedBO = { ...editBO, status: 'published' };
-        const newObjects = businessObjects.map(bo => bo.id === editBO.id ? publishedBO : bo);
+        const newObjects = businessObjects.map((bo: any) => bo.id === editBO.id ? publishedBO : bo);
         setBusinessObjects(newObjects);
         setSelectedBO(publishedBO);
         setIsEditing(false);
         alert("业务对象已发布！");
     };
 
-    const handleFieldChange = (idx, field, value) => {
+    const handleFieldChange = (idx: number, field: string, value: any) => {
         const newFields = [...editBO.fields];
         newFields[idx] = { ...newFields[idx], [field]: value };
         setEditBO({ ...editBO, fields: newFields });
@@ -1385,8 +1406,8 @@ const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO,
         setEditBO({ ...editBO, fields: [...editBO.fields, newField] });
     };
 
-    const handleDeleteField = (idx) => {
-        const newFields = editBO.fields.filter((_, i) => i !== idx);
+    const handleDeleteField = (idx: number) => {
+        const newFields = editBO.fields.filter((_: any, i: number) => i !== idx);
         setEditBO({ ...editBO, fields: newFields });
     };
 
@@ -1412,7 +1433,7 @@ const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO,
                         description: '请输入描述...',
                         fields: []
                     };
-                    setBusinessObjects(prev => [newBO, ...prev]);
+                    setBusinessObjects((prev: any) => [newBO, ...prev]);
                     setSelectedBO(newBO);
                 }}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700"
@@ -1427,7 +1448,7 @@ const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO,
                     <input type="text" placeholder="搜索对象..." className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none" />
                 </div>
                 <div className="flex-1 overflow-y-auto">
-                    {businessObjects.map(bo => (
+                    {businessObjects.map((bo: any) => (
                         <div 
                             key={bo.id} 
                             onClick={() => setSelectedBO(bo)}
@@ -1539,7 +1560,7 @@ const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO,
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {editBO.fields.map((f, idx) => (
+                                    {editBO.fields.map((f: any, idx: number) => (
                                         <tr key={idx} className="group hover:bg-slate-50">
                                             {isEditing && (
                                                 <td className="text-center text-slate-300 cursor-move"><GripVertical size={14} className="mx-auto"/></td>
@@ -1610,7 +1631,7 @@ const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO,
     );
 };
 
-const ScenarioOrchestrationView = ({ businessObjects }) => (
+const ScenarioOrchestrationView = ({ businessObjects }: any) => (
     <div className="space-y-6 animate-fade-in">
         <div>
             <h2 className="text-2xl font-bold text-slate-800">场景编排 (Scenarios)</h2>
@@ -1652,7 +1673,7 @@ const ScenarioOrchestrationView = ({ businessObjects }) => (
     </div>
 );
 
-const DataSourceManagementView = ({ dataSources, setDataSources }) => (
+const DataSourceManagementView = ({ dataSources, setDataSources }: any) => (
     <div className="space-y-6 animate-fade-in">
          <div className="flex justify-between items-center">
             <div>
@@ -1664,7 +1685,7 @@ const DataSourceManagementView = ({ dataSources, setDataSources }) => (
             </button>
         </div>
         <div className="grid grid-cols-1 gap-4">
-            {dataSources.map(ds => (
+            {dataSources.map((ds: any) => (
                 <div key={ds.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center gap-6">
                     <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 shrink-0">
                         {ds.type === 'MySQL' ? <Database size={24} className="text-blue-500"/> : 
@@ -1690,7 +1711,7 @@ const DataSourceManagementView = ({ dataSources, setDataSources }) => (
     </div>
 );
 
-const AssetScanningView = ({ setActiveModule, candidates, scanAssets }) => (
+const AssetScanningView = ({ setActiveModule, candidates, scanAssets }: any) => (
     <div className="space-y-6 animate-fade-in">
         <div className="flex justify-between items-center">
             <div>
@@ -1718,7 +1739,7 @@ const AssetScanningView = ({ setActiveModule, candidates, scanAssets }) => (
                      </tr>
                  </thead>
                  <tbody className="divide-y divide-slate-100">
-                     {scanAssets.map(asset => (
+                     {scanAssets.map((asset: any) => (
                          <tr key={asset.id} className="hover:bg-slate-50 transition-colors">
                              <td className="px-6 py-4 font-mono font-medium text-slate-700">
                                  {asset.name}
@@ -1746,7 +1767,7 @@ const AssetScanningView = ({ setActiveModule, candidates, scanAssets }) => (
     </div>
 );
 
-const MappingStudioView = ({ selectedBO }) => (
+const MappingStudioView = ({ selectedBO }: any) => (
     <div className="space-y-6 animate-fade-in">
         <div className="flex justify-between items-center">
              <div>
@@ -1763,7 +1784,7 @@ const MappingStudioView = ({ selectedBO }) => (
              <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm p-5">
                  <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Box size={18}/> 业务对象 (Logical)</h3>
                  <div className="space-y-2">
-                     {selectedBO?.fields?.map(f => (
+                     {selectedBO?.fields?.map((f: any) => (
                          <div key={f.id} className="p-3 border border-slate-200 rounded-lg bg-slate-50 flex justify-between items-center">
                              <div>
                                  <div className="font-bold text-sm text-slate-700">{f.name}</div>
@@ -1834,7 +1855,7 @@ const MappingStudioView = ({ selectedBO }) => (
     </div>
 );
 
-const ConflictDetectionView = ({ setActiveModule }) => (
+const ConflictDetectionView = ({ setActiveModule }: any) => (
     <div className="space-y-6 animate-fade-in">
         <div>
             <h2 className="text-2xl font-bold text-slate-800">冲突检测 (Governance)</h2>
@@ -2023,16 +2044,16 @@ const DataLineageView = () => (
 );
 
 // --- 视图: 数据语义理解 (BU-03) ---
-const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBusinessObjects, dataSources, scanAssets, setScanAssets }) => {
+const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBusinessObjects, dataSources, scanAssets, setScanAssets }: any) => {
     const [selectedTableId, setSelectedTableId] = useState(scanAssets[0]?.id);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [expandedSources, setExpandedSources] = useState(new Set(dataSources.map(ds => ds.id)));
-    const [expandedTypes, setExpandedTypes] = useState(new Set(dataSources.map(ds => ds.type)));
+    const [expandedSources, setExpandedSources] = useState(new Set(dataSources.map((ds: any) => ds.id)));
+    const [expandedTypes, setExpandedTypes] = useState(new Set(dataSources.map((ds: any) => ds.type)));
     const [searchTerm, setSearchTerm] = useState("");
     
     // Enrich mock assets with sourceId if not present (handled in global mock data, ensuring here)
-    const selectedTable = scanAssets.find(t => t.id === selectedTableId) as any;
-    const selectedDataSource = dataSources.find(ds => ds.id === selectedTable?.sourceId);
+    const selectedTable = scanAssets.find((t: any) => t.id === selectedTableId) as any;
+    const selectedDataSource = dataSources.find((ds: any) => ds.id === selectedTable?.sourceId);
 
     // State for the AI result being viewed/edited
     // If the table already has a semantic profile (saved), load it. Otherwise, use temporary AI result.
@@ -2066,14 +2087,14 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
         }
     }, [selectedTableId, selectedTable]);
 
-    const toggleType = (type) => {
+    const toggleType = (type: any) => {
         const newSet = new Set(expandedTypes);
         if (newSet.has(type)) newSet.delete(type);
         else newSet.add(type);
         setExpandedTypes(newSet);
     };
 
-    const toggleSource = (sourceId) => {
+    const toggleSource = (sourceId: any) => {
         const newExpanded = new Set(expandedSources);
         if (newExpanded.has(sourceId)) {
             newExpanded.delete(sourceId);
@@ -2094,7 +2115,7 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
             表名: ${selectedTable.name}
             原始注释: ${selectedTable.comment}
             字段列表:
-            ${selectedTable.columns.map(c => `- ${c.name} (${c.type}): ${c.comment}`).join('\n')}
+            ${selectedTable.columns.map((c: any) => `- ${c.name} (${c.type}): ${c.comment}`).join('\n')}
             
             请输出 JSON 格式，包含以下字段:
             - businessName: 建议的中文业务名称
@@ -2110,7 +2131,7 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                 config: { responseMimeType: 'application/json' }
             });
             
-            const result = JSON.parse(response.text);
+            const result = JSON.parse(response.text as string);
             setCurrentResult(result);
             setEditableResult(result); // Populate editable form
             setEditMode(true); // Switch to edit mode for review
@@ -2122,11 +2143,31 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
         }
     };
 
+    const toggleCoreField = (columnName: string, defaultReason: string) => {
+        if (!editableResult) return;
+        const exists = editableResult.coreFields?.find((cf: any) => cf.field === columnName);
+        let newCoreFields;
+        if (exists) {
+            newCoreFields = editableResult.coreFields?.filter((cf: any) => cf.field !== columnName) || [];
+        } else {
+            newCoreFields = [...(editableResult.coreFields || []), { field: columnName, reason: defaultReason || '关键业务属性' }];
+        }
+        setEditableResult({ ...editableResult, coreFields: newCoreFields });
+    };
+
+    const updateCoreFieldReason = (columnName: string, newReason: string) => {
+         if (!editableResult) return;
+         const newCoreFields = editableResult.coreFields?.map((cf: any) => 
+             cf.field === columnName ? { ...cf, reason: newReason } : cf
+         ) || [];
+         setEditableResult({ ...editableResult, coreFields: newCoreFields });
+    };
+
     const handleSaveToMetadata = () => {
         if (!editableResult || !selectedTable) return;
 
         // Save logic: update scanAssets state with new semanticProfile
-        const updatedAssets = scanAssets.map(asset => {
+        const updatedAssets = scanAssets.map((asset: any) => {
             if (asset.id === selectedTableId) {
                 return {
                     ...asset,
@@ -2147,7 +2188,7 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
         if (!currentResult || !selectedTable) return;
         
         // This function creates a NEW Business Object based on the semantic data
-        const mapSqlTypeToBusinessType = (sqlType) => {
+        const mapSqlTypeToBusinessType = (sqlType: string) => {
              const lower = sqlType.toLowerCase();
              if (lower.includes('char') || lower.includes('text')) return 'String';
              if (lower.includes('int') || lower.includes('bigint')) return 'Integer';
@@ -2166,7 +2207,7 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
             version: 'v0.1',
             description: currentResult.description,
             sourceTables: [selectedTable.name],
-            fields: selectedTable.columns.map((col, idx) => {
+            fields: selectedTable.columns.map((col: any, idx: number) => {
                 const isCore = currentResult.coreFields?.find(cf => cf.field === col.name);
                 return {
                     id: `f_${Date.now()}_${idx}`,
@@ -2180,42 +2221,42 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
             })
         };
 
-        setBusinessObjects(prev => [newBO, ...prev]);
+        setBusinessObjects((prev: any) => [newBO, ...prev]);
         alert(`已基于语义分析生成业务对象：${newBO.name}`);
         setActiveModule('td_modeling');
     };
 
     // Prepare data for tree view
-    const filteredAssets = scanAssets.filter(asset => 
+    const filteredAssets = scanAssets.filter((asset: any) => 
         asset.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         asset.comment.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const sourcesWithTables = dataSources.map(ds => {
-        const tables = filteredAssets.filter(asset => asset.sourceId === ds.id);
+    const sourcesWithTables = dataSources.map((ds: any) => {
+        const tables = filteredAssets.filter((asset: any) => asset.sourceId === ds.id);
         return { ...ds, tables };
-    }).filter(ds => ds.tables.length > 0 || searchTerm === "");
+    }).filter((ds: any) => ds.tables.length > 0 || searchTerm === "");
 
     const groupedTreeData = Object.entries(
-        sourcesWithTables.reduce((acc, ds) => {
+        sourcesWithTables.reduce((acc: any, ds: any) => {
             if (!acc[ds.type]) acc[ds.type] = [];
             acc[ds.type].push(ds);
             return acc;
-        }, {})
-    ).map(([type, sources]) => ({ type, sources }));
+        }, {} as Record<string, typeof sourcesWithTables>)
+    ).map(([type, sources]) => ({ type, sources: sources as typeof sourcesWithTables }));
 
     return (
         <div className="space-y-6 h-full flex flex-col">
             <div className="flex justify-between items-center shrink-0">
                <div>
                  <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                    <BrainCircuit className="text-pink-500" /> 数据语义理解
+                    <BrainCircuit className="text-pink-500" /> 逻辑视图
                  </h2>
                  <p className="text-sm text-slate-500 mt-1">基于 AI 大模型，深度解析物理资产的业务含义，并回写至技术元数据。</p>
                </div>
                <div className="flex gap-4">
-                  <StatCard label="待分析表" value={scanAssets.filter(a => !a.isSemanticEnriched).length} trend="Pending" icon={Database} color="blue" />
-                  <StatCard label="已智能解析" value={scanAssets.filter(a => a.isSemanticEnriched).length} trend="Saved" icon={Sparkles} color="purple" />
+                  <StatCard label="待分析表" value={scanAssets.filter((a: any) => !a.isSemanticEnriched).length} trend="Pending" icon={Database} color="blue" />
+                  <StatCard label="已智能解析" value={scanAssets.filter((a: any) => a.isSemanticEnriched).length} trend="Saved" icon={Sparkles} color="purple" />
                </div>
             </div>
 
@@ -2357,7 +2398,7 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                         <tr><th className="px-4 py-2 font-medium">字段名</th><th className="px-4 py-2 font-medium">类型</th><th className="px-4 py-2 font-medium">原始注释</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                        {selectedTable?.columns.map((c, idx) => (
+                                        {selectedTable?.columns.map((c: any, idx: number) => (
                                             <tr key={idx} className="hover:bg-slate-50">
                                                 <td className="px-4 py-3 font-mono text-slate-700">{c.name}</td>
                                                 <td className="px-4 py-3 text-slate-500 text-xs">{c.type}</td>
@@ -2436,15 +2477,58 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                      </div>
 
                                      <div className="bg-purple-50/50 rounded-lg p-3 border border-purple-100">
-                                          <label className="text-xs font-bold text-purple-400 uppercase tracking-wider">核心字段识别</label>
-                                          <ul className="mt-2 space-y-2">
-                                              {editableResult?.coreFields?.map((f, i) => (
-                                                  <li key={i} className="text-xs flex gap-2 items-start">
-                                                      <span className="font-mono font-bold text-slate-700 bg-white border border-purple-100 px-1 rounded">{f.field}</span>
-                                                      <span className="text-slate-500">- {f.reason}</span>
-                                                  </li>
-                                              ))}
-                                          </ul>
+                                          <div className="flex justify-between items-center mb-2">
+                                              <label className="text-xs font-bold text-purple-400 uppercase tracking-wider">核心字段识别 (Core Fields)</label>
+                                              {editMode && (
+                                                  <span className="text-[10px] text-purple-400">
+                                                      {editableResult?.coreFields?.length}/{selectedTable?.columns.length} 已选
+                                                  </span>
+                                              )}
+                                          </div>
+                                          {editMode ? (
+                                              <div className="max-h-60 overflow-y-auto pr-1 custom-scrollbar space-y-2">
+                                                  {selectedTable?.columns.map((col: any) => {
+                                                      const coreField = editableResult?.coreFields?.find((cf: any) => cf.field === col.name);
+                                                      const isCore = !!coreField;
+                                                      
+                                                      return (
+                                                          <div key={col.name} className={`p-2 rounded border transition-all ${isCore ? 'bg-white border-purple-200 shadow-sm' : 'border-transparent opacity-70 hover:opacity-100 hover:bg-white/50'}`}>
+                                                              <div className="flex items-center gap-2">
+                                                                  <button 
+                                                                      onClick={() => toggleCoreField(col.name, col.comment)}
+                                                                      className={`w-8 h-4 rounded-full p-0.5 transition-colors relative flex-shrink-0 ${isCore ? 'bg-purple-500' : 'bg-slate-300'}`}
+                                                                  >
+                                                                      <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${isCore ? 'translate-x-4' : 'translate-x-0'}`} />
+                                                                  </button>
+                                                                  
+                                                                  <span className={`text-xs font-mono truncate ${isCore ? 'font-bold text-purple-900' : 'text-slate-600'}`} title={col.name}>{col.name}</span>
+                                                                  <span className="text-[10px] text-slate-400 truncate flex-1">{col.type}</span>
+                                                              </div>
+                                                              
+                                                              {isCore && (
+                                                                  <div className="mt-2 pl-10">
+                                                                      <input 
+                                                                          value={coreField?.reason || ''}
+                                                                          onChange={(e) => updateCoreFieldReason(col.name, e.target.value)}
+                                                                          className="w-full text-xs border-b border-purple-100 bg-transparent focus:border-purple-400 focus:outline-none text-slate-600 placeholder-purple-200"
+                                                                          placeholder="输入识别原因..."
+                                                                      />
+                                                                  </div>
+                                                              )}
+                                                          </div>
+                                                      );
+                                                  })}
+                                              </div>
+                                          ) : (
+                                              <ul className="mt-2 space-y-2">
+                                                  {(editableResult as any)?.coreFields?.map((f: any, i: number) => (
+                                                      <li key={i} className="text-xs flex gap-2 items-start">
+                                                          <span className="font-mono font-bold text-slate-700 bg-white border border-purple-100 px-1 rounded">{f.field}</span>
+                                                          <span className="text-slate-500">- {f.reason}</span>
+                                                      </li>
+                                                  ))}
+                                              </ul>
+                                          )}
                                      </div>
 
                                      <div className="pt-4 border-t border-purple-100 flex flex-col gap-2">
@@ -2488,6 +2572,7 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
 const SemanticLayerApp = () => {
     const [activeModule, setActiveModule] = useState('dashboard');
     const [showAssistant, setShowAssistant] = useState(false);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     
     // Global State (mocked)
     const [businessObjects, setBusinessObjects] = useState(mockBusinessObjects);
@@ -2532,7 +2617,12 @@ const SemanticLayerApp = () => {
 
     return (
         <div className="flex h-screen bg-slate-50 font-sans text-slate-800 overflow-hidden">
-            <Sidebar activeModule={activeModule} setActiveModule={setActiveModule} />
+            <Sidebar 
+                activeModule={activeModule} 
+                setActiveModule={setActiveModule} 
+                isCollapsed={isSidebarCollapsed}
+                setIsCollapsed={setIsSidebarCollapsed}
+            />
             <div className="flex-1 flex flex-col min-w-0">
                 <Header activeModule={activeModule} showAssistant={showAssistant} setShowAssistant={setShowAssistant} />
                 <main className="flex-1 overflow-hidden relative">
