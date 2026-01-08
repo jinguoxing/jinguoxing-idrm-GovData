@@ -3311,9 +3311,14 @@ const ConflictDetectionView = ({ setActiveModule }: any) => {
 // --- 视图: 全链路血缘 (SG-05) ---
 const DataLineageView = ({ businessObjects }: any) => {
     const [selectedNode, setSelectedNode] = useState<string | null>(null);
-    const [viewMode, setViewMode] = useState<'impact' | 'lineage'>('lineage');
+    const [viewMode, setViewMode] = useState<'lineage' | 'impact' | 'dependency'>('lineage');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filterType, setFilterType] = useState('all');
+    const [zoomLevel, setZoomLevel] = useState(1);
+    const [showMiniMap, setShowMiniMap] = useState(true);
+    const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical' | 'circular'>('horizontal');
 
-    // 模拟血缘数据
+    // 增强的血缘数据模拟
     const mockLineageData = {
         nodes: [
             { 
@@ -3322,91 +3327,227 @@ const DataLineageView = ({ businessObjects }: any) => {
                 type: 'datasource',
                 x: 100, 
                 y: 200,
-                description: 'MySQL数据库',
-                status: 'active'
+                description: 'MySQL数据库 - 主要存储医疗机构数据',
+                status: 'active',
+                owner: 'DBA团队',
+                lastUpdate: '2024-05-21 10:30',
+                records: '2.5M',
+                size: '15.2GB',
+                connections: 8,
+                tags: ['MySQL', '生产环境', '核心数据源']
+            },
+            { 
+                id: 'DS_002', 
+                label: '公安人口库', 
+                type: 'datasource',
+                x: 100, 
+                y: 350,
+                description: 'Oracle数据库 - 全市人口基础信息',
+                status: 'active',
+                owner: '公安数据中心',
+                lastUpdate: '2024-05-21 09:15',
+                records: '8.7M',
+                size: '45.8GB',
+                connections: 12,
+                tags: ['Oracle', '权威数据源', '实时同步']
             },
             { 
                 id: 'TBL_001', 
                 label: 't_pop_base_info', 
                 type: 'table',
-                x: 300, 
+                x: 350, 
                 y: 150,
-                description: '人口基础信息表',
-                status: 'active'
+                description: '人口基础信息表 - 新生儿核心数据',
+                status: 'active',
+                owner: 'DBA团队',
+                lastUpdate: '2024-05-21 14:20',
+                records: '1.2M',
+                size: '8.5GB',
+                columns: 15,
+                tags: ['核心表', '高频访问', '实时更新']
             },
             { 
                 id: 'TBL_002', 
                 label: 't_med_birth_cert', 
                 type: 'table',
-                x: 300, 
+                x: 350, 
                 y: 250,
-                description: '出生证明记录表',
-                status: 'active'
+                description: '出生证明记录表 - 医学证明信息',
+                status: 'active',
+                owner: 'DBA团队',
+                lastUpdate: '2024-05-21 13:45',
+                records: '450K',
+                size: '2.1GB',
+                columns: 12,
+                tags: ['证照表', '业务关键', '审计跟踪']
+            },
+            { 
+                id: 'TBL_003', 
+                label: 't_identity_verify', 
+                type: 'table',
+                x: 350, 
+                y: 350,
+                description: '身份验证记录表 - 验证日志',
+                status: 'active',
+                owner: '安全团队',
+                lastUpdate: '2024-05-21 15:10',
+                records: '3.2M',
+                size: '1.8GB',
+                columns: 8,
+                tags: ['安全表', '日志记录', '合规要求']
             },
             { 
                 id: 'BO_NEWBORN', 
-                label: '新生儿 (Newborn)', 
+                label: '新生儿业务对象', 
                 type: 'object',
-                x: 500, 
+                x: 600, 
                 y: 150,
-                description: '业务对象',
-                status: 'active'
+                description: '新生儿核心业务对象 - 统一数据模型',
+                status: 'active',
+                owner: '业务架构师',
+                lastUpdate: '2024-05-20 16:30',
+                fields: 18,
+                mappings: 4,
+                version: 'v1.2.3',
+                tags: ['核心对象', '标准化', '业务建模']
             },
             { 
                 id: 'BO_CERT', 
-                label: '出生医学证明', 
+                label: '出生证明业务对象', 
                 type: 'object',
-                x: 500, 
+                x: 600, 
                 y: 250,
-                description: '业务对象',
-                status: 'active'
+                description: '出生医学证明业务对象 - 证照标准模型',
+                status: 'active',
+                owner: '业务架构师',
+                lastUpdate: '2024-05-19 11:20',
+                fields: 12,
+                mappings: 2,
+                version: 'v1.1.0',
+                tags: ['证照对象', '法规遵循', '标准化']
             },
             { 
-                id: 'API_001', 
-                label: '查询新生儿详情', 
-                type: 'api',
-                x: 700, 
-                y: 150,
-                description: 'REST API服务',
-                status: 'active'
+                id: 'SVC_001', 
+                label: '新生儿查询服务', 
+                type: 'service',
+                x: 850, 
+                y: 120,
+                description: 'REST API - 新生儿信息查询服务',
+                status: 'online',
+                owner: 'API团队',
+                lastUpdate: '2024-05-21 09:45',
+                qps: 125,
+                latency: '45ms',
+                sla: '99.9%',
+                tags: ['REST API', '高可用', '实时查询']
             },
             { 
-                id: 'API_002', 
-                label: '出生证明申领', 
-                type: 'api',
-                x: 700, 
-                y: 250,
-                description: 'REST API服务',
-                status: 'active'
+                id: 'SVC_002', 
+                label: '证明申领服务', 
+                type: 'service',
+                x: 850, 
+                y: 220,
+                description: 'REST API - 出生证明申领服务',
+                status: 'online',
+                owner: 'API团队',
+                lastUpdate: '2024-05-20 14:15',
+                qps: 45,
+                latency: '120ms',
+                sla: '99.5%',
+                tags: ['REST API', '业务流程', '异步处理']
+            },
+            { 
+                id: 'SVC_003', 
+                label: '身份验证服务', 
+                type: 'service',
+                x: 850, 
+                y: 320,
+                description: 'gRPC API - 身份验证服务',
+                status: 'online',
+                owner: '安全团队',
+                lastUpdate: '2024-05-21 08:30',
+                qps: 280,
+                latency: '25ms',
+                sla: '99.95%',
+                tags: ['gRPC', '安全认证', '高性能']
             },
             { 
                 id: 'APP_001', 
                 label: '出生一件事应用', 
                 type: 'application',
-                x: 900, 
+                x: 1100, 
                 y: 200,
-                description: '前端应用',
-                status: 'active'
+                description: '前端应用 - 出生一件事办事平台',
+                status: 'running',
+                owner: '前端团队',
+                lastUpdate: '2024-05-21 16:00',
+                users: '15K',
+                uptime: '99.8%',
+                version: 'v2.1.5',
+                tags: ['React应用', '用户门户', '移动适配']
+            },
+            { 
+                id: 'APP_002', 
+                label: '数据管理后台', 
+                type: 'application',
+                x: 1100, 
+                y: 320,
+                description: '管理后台 - 数据维护和监控平台',
+                status: 'running',
+                owner: '运维团队',
+                lastUpdate: '2024-05-20 12:30',
+                users: '200',
+                uptime: '99.9%',
+                version: 'v1.8.2',
+                tags: ['Vue应用', '管理后台', '数据运维']
             }
         ],
         edges: [
-            { from: 'DS_001', to: 'TBL_001', label: '包含' },
-            { from: 'DS_001', to: 'TBL_002', label: '包含' },
-            { from: 'TBL_001', to: 'BO_NEWBORN', label: '映射' },
-            { from: 'TBL_002', to: 'BO_CERT', label: '映射' },
-            { from: 'BO_NEWBORN', to: 'API_001', label: '服务' },
-            { from: 'BO_CERT', to: 'API_002', label: '服务' },
-            { from: 'API_001', to: 'APP_001', label: '调用' },
-            { from: 'API_002', to: 'APP_001', label: '调用' }
+            { from: 'DS_001', to: 'TBL_001', label: '包含', type: 'contains', strength: 'strong' },
+            { from: 'DS_001', to: 'TBL_002', label: '包含', type: 'contains', strength: 'strong' },
+            { from: 'DS_002', to: 'TBL_003', label: '包含', type: 'contains', strength: 'strong' },
+            { from: 'TBL_001', to: 'BO_NEWBORN', label: '映射', type: 'mapping', strength: 'strong' },
+            { from: 'TBL_002', to: 'BO_CERT', label: '映射', type: 'mapping', strength: 'strong' },
+            { from: 'TBL_003', to: 'SVC_003', label: '直接调用', type: 'direct', strength: 'medium' },
+            { from: 'BO_NEWBORN', to: 'SVC_001', label: '服务化', type: 'service', strength: 'strong' },
+            { from: 'BO_CERT', to: 'SVC_002', label: '服务化', type: 'service', strength: 'strong' },
+            { from: 'SVC_001', to: 'APP_001', label: '调用', type: 'invoke', strength: 'strong' },
+            { from: 'SVC_002', to: 'APP_001', label: '调用', type: 'invoke', strength: 'strong' },
+            { from: 'SVC_003', to: 'APP_001', label: '调用', type: 'invoke', strength: 'medium' },
+            { from: 'SVC_001', to: 'APP_002', label: '调用', type: 'invoke', strength: 'weak' },
+            { from: 'SVC_002', to: 'APP_002', label: '调用', type: 'invoke', strength: 'weak' },
+            { from: 'SVC_003', to: 'APP_002', label: '调用', type: 'invoke', strength: 'medium' }
         ]
     };
+
+    // 过滤节点和边
+    const filteredNodes = mockLineageData.nodes.filter(node => {
+        const matchesSearch = node.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            node.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            node.tags?.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()));
+        const matchesType = filterType === 'all' || node.type === filterType;
+        return matchesSearch && matchesType;
+    });
+
+    const filteredEdges = mockLineageData.edges.filter(edge => 
+        filteredNodes.some(n => n.id === edge.from) && filteredNodes.some(n => n.id === edge.to)
+    );
+
+    const nodeTypes = [
+        { id: 'all', label: '全部', count: mockLineageData.nodes.length },
+        { id: 'datasource', label: '数据源', count: mockLineageData.nodes.filter(n => n.type === 'datasource').length },
+        { id: 'table', label: '数据表', count: mockLineageData.nodes.filter(n => n.type === 'table').length },
+        { id: 'object', label: '业务对象', count: mockLineageData.nodes.filter(n => n.type === 'object').length },
+        { id: 'service', label: '服务', count: mockLineageData.nodes.filter(n => n.type === 'service').length },
+        { id: 'application', label: '应用', count: mockLineageData.nodes.filter(n => n.type === 'application').length }
+    ];
 
     const getNodeIcon = (type: string) => {
         switch (type) {
             case 'datasource': return <Database size={20} className="text-blue-600" />;
             case 'table': return <Table size={20} className="text-emerald-600" />;
             case 'object': return <Box size={20} className="text-purple-600" />;
-            case 'api': return <Server size={20} className="text-orange-600" />;
+            case 'service': return <Server size={20} className="text-orange-600" />;
             case 'application': return <Globe size={20} className="text-pink-600" />;
             default: return <FileText size={20} className="text-slate-600" />;
         }
@@ -3414,90 +3555,330 @@ const DataLineageView = ({ businessObjects }: any) => {
 
     const getNodeColor = (type: string) => {
         switch (type) {
-            case 'datasource': return 'bg-blue-50 border-blue-300 text-blue-800';
-            case 'table': return 'bg-emerald-50 border-emerald-300 text-emerald-800';
-            case 'object': return 'bg-purple-50 border-purple-300 text-purple-800';
-            case 'api': return 'bg-orange-50 border-orange-300 text-orange-800';
-            case 'application': return 'bg-pink-50 border-pink-300 text-pink-800';
-            default: return 'bg-slate-50 border-slate-300 text-slate-800';
+            case 'datasource': return 'bg-blue-50 border-blue-300 text-blue-800 hover:bg-blue-100';
+            case 'table': return 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100';
+            case 'object': return 'bg-purple-50 border-purple-300 text-purple-800 hover:bg-purple-100';
+            case 'service': return 'bg-orange-50 border-orange-300 text-orange-800 hover:bg-orange-100';
+            case 'application': return 'bg-pink-50 border-pink-300 text-pink-800 hover:bg-pink-100';
+            default: return 'bg-slate-50 border-slate-300 text-slate-800 hover:bg-slate-100';
+        }
+    };
+
+    const getEdgeColor = (type: string, strength: string) => {
+        const baseColors = {
+            contains: '#3b82f6',
+            mapping: '#10b981',
+            service: '#8b5cf6',
+            invoke: '#f59e0b',
+            direct: '#ef4444'
+        };
+        const opacity = strength === 'strong' ? '1' : strength === 'medium' ? '0.7' : '0.4';
+        return `${baseColors[type as keyof typeof baseColors] || '#64748b'}${Math.round(parseFloat(opacity) * 255).toString(16)}`;
+    };
+
+    const getStatusIndicator = (status: string) => {
+        switch (status) {
+            case 'active':
+            case 'online':
+            case 'running':
+                return <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>;
+            case 'inactive':
+            case 'offline':
+            case 'stopped':
+                return <div className="w-2 h-2 bg-red-500 rounded-full"></div>;
+            case 'warning':
+                return <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>;
+            default:
+                return <div className="w-2 h-2 bg-slate-400 rounded-full"></div>;
         }
     };
 
     return (
         <div className="h-full flex flex-col gap-6 p-6">
+            {/* 页面头部 */}
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                         <GitBranch className="text-purple-500" /> 全链路血缘分析
                     </h2>
-                    <p className="text-slate-500 mt-1">数据流向追踪和影响分析</p>
+                    <p className="text-slate-500 mt-1">数据流向追踪和影响分析 - 可视化数据血缘关系</p>
                 </div>
-                <div className="flex gap-3">
-                    <div className="flex items-center bg-slate-200 rounded-lg p-1">
-                        <button
-                            onClick={() => setViewMode('lineage')}
-                            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
-                                viewMode === 'lineage' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                            }`}
-                        >
-                            血缘视图
-                        </button>
-                        <button
-                            onClick={() => setViewMode('impact')}
-                            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
-                                viewMode === 'impact' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                            }`}
-                        >
-                            影响分析
-                        </button>
-                    </div>
+                <div className="flex items-center gap-3">
+                    <button className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-700 text-sm flex items-center gap-2 hover:bg-slate-50">
+                        <Share2 size={16} /> 导出图片
+                    </button>
+                    <button className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-700 text-sm flex items-center gap-2 hover:bg-slate-50">
+                        <RefreshCw size={16} /> 刷新血缘
+                    </button>
                     <button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-2 hover:bg-blue-700">
                         <Network size={16} /> 影响分析
                     </button>
                 </div>
             </div>
 
-            <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-inner flex flex-col overflow-hidden relative">
+            {/* 控制面板 */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+                    {/* 视图模式切换 */}
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center bg-slate-100 rounded-lg p-1">
+                            <button
+                                onClick={() => setViewMode('lineage')}
+                                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
+                                    viewMode === 'lineage' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                            >
+                                血缘视图
+                            </button>
+                            <button
+                                onClick={() => setViewMode('impact')}
+                                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
+                                    viewMode === 'impact' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                            >
+                                影响分析
+                            </button>
+                            <button
+                                onClick={() => setViewMode('dependency')}
+                                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
+                                    viewMode === 'dependency' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                            >
+                                依赖分析
+                            </button>
+                        </div>
+
+                        {/* 布局模式 */}
+                        <div className="flex items-center bg-slate-100 rounded-lg p-1">
+                            <button
+                                onClick={() => setLayoutMode('horizontal')}
+                                className={`p-1.5 rounded-md transition-all ${
+                                    layoutMode === 'horizontal' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                                title="水平布局"
+                            >
+                                <ArrowRight size={16} />
+                            </button>
+                            <button
+                                onClick={() => setLayoutMode('vertical')}
+                                className={`p-1.5 rounded-md transition-all ${
+                                    layoutMode === 'vertical' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                                title="垂直布局"
+                            >
+                                <ChevronDown size={16} />
+                            </button>
+                            <button
+                                onClick={() => setLayoutMode('circular')}
+                                className={`p-1.5 rounded-md transition-all ${
+                                    layoutMode === 'circular' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                                title="环形布局"
+                            >
+                                <RefreshCw size={16} />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* 搜索和筛选 */}
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-1">
+                            {nodeTypes.map(type => (
+                                <button
+                                    key={type.id}
+                                    onClick={() => setFilterType(type.id)}
+                                    className={`px-2 py-1 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${
+                                        filterType === type.id
+                                            ? 'bg-white text-blue-600 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700'
+                                    }`}
+                                >
+                                    {type.label}
+                                    <span className="bg-slate-200 text-slate-600 px-1 py-0.5 rounded text-xs">
+                                        {type.count}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="relative">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                            <input
+                                type="text"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                placeholder="搜索节点名称或标签..."
+                                className="pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-blue-500 w-64 shadow-sm"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* 统计概览 */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-xs text-slate-500 uppercase tracking-wider">数据源</p>
+                            <p className="text-xl font-bold text-blue-600">{mockLineageData.nodes.filter(n => n.type === 'datasource').length}</p>
+                        </div>
+                        <Database size={20} className="text-blue-500" />
+                    </div>
+                </div>
+                <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-xs text-slate-500 uppercase tracking-wider">业务对象</p>
+                            <p className="text-xl font-bold text-purple-600">{mockLineageData.nodes.filter(n => n.type === 'object').length}</p>
+                        </div>
+                        <Box size={20} className="text-purple-500" />
+                    </div>
+                </div>
+                <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-xs text-slate-500 uppercase tracking-wider">API服务</p>
+                            <p className="text-xl font-bold text-orange-600">{mockLineageData.nodes.filter(n => n.type === 'service').length}</p>
+                        </div>
+                        <Server size={20} className="text-orange-500" />
+                    </div>
+                </div>
+                <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-xs text-slate-500 uppercase tracking-wider">应用系统</p>
+                            <p className="text-xl font-bold text-pink-600">{mockLineageData.nodes.filter(n => n.type === 'application').length}</p>
+                        </div>
+                        <Globe size={20} className="text-pink-500" />
+                    </div>
+                </div>
+            </div>
+
+            {/* 血缘图可视化区域 */}
+            <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden relative min-h-[600px]">
                 {/* 工具栏 */}
-                <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 bg-white rounded-lg shadow-sm border border-slate-200 p-1">
-                    <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded" title="适应画布">
+                <div className="absolute top-4 left-4 z-20 flex flex-col gap-2 bg-white rounded-lg shadow-lg border border-slate-200 p-1">
+                    <button 
+                        onClick={() => setZoomLevel(Math.min(zoomLevel + 0.2, 2))}
+                        className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded transition-colors" 
+                        title="放大"
+                    >
                         <ZoomIn size={18} />
                     </button>
-                    <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded" title="重置视图">
+                    <button 
+                        onClick={() => setZoomLevel(Math.max(zoomLevel - 0.2, 0.5))}
+                        className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded transition-colors" 
+                        title="缩小"
+                    >
+                        <ZoomOut size={18} />
+                    </button>
+                    <button 
+                        onClick={() => setZoomLevel(1)}
+                        className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded transition-colors" 
+                        title="重置缩放"
+                    >
                         <RefreshCw size={18} />
                     </button>
                     <div className="h-px bg-slate-200 my-1"></div>
-                    <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded" title="导出图片">
+                    <button 
+                        onClick={() => setShowMiniMap(!showMiniMap)}
+                        className={`p-2 rounded transition-colors ${
+                            showMiniMap ? 'text-blue-600 bg-blue-50' : 'text-slate-500 hover:text-blue-600 hover:bg-slate-50'
+                        }`} 
+                        title="小地图"
+                    >
+                        <Eye size={18} />
+                    </button>
+                    <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded transition-colors" title="导出SVG">
                         <Share2 size={18} />
                     </button>
                 </div>
 
-                {/* 血缘图 */}
-                <div className="flex-1 overflow-auto p-8 bg-slate-50">
-                    <div className="relative w-full h-full min-h-[600px]">
-                        {/* 渲染连线 */}
-                        <svg className="absolute inset-0 w-full h-full pointer-events-none">
-                            {mockLineageData.edges.map((edge, index) => {
-                                const fromNode = mockLineageData.nodes.find(n => n.id === edge.from);
-                                const toNode = mockLineageData.nodes.find(n => n.id === edge.to);
+                {/* 图例 */}
+                <div className="absolute top-4 right-4 z-20 bg-white rounded-lg shadow-lg border border-slate-200 p-3">
+                    <h4 className="text-sm font-bold text-slate-700 mb-2">图例</h4>
+                    <div className="space-y-2 text-xs">
+                        <div className="flex items-center gap-2">
+                            <Database size={14} className="text-blue-600" />
+                            <span>数据源</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Table size={14} className="text-emerald-600" />
+                            <span>数据表</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Box size={14} className="text-purple-600" />
+                            <span>业务对象</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Server size={14} className="text-orange-600" />
+                            <span>API服务</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Globe size={14} className="text-pink-600" />
+                            <span>应用系统</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* 小地图 */}
+                {showMiniMap && (
+                    <div className="absolute bottom-4 right-4 z-20 w-48 h-32 bg-white border border-slate-200 rounded-lg shadow-lg p-2">
+                        <div className="text-xs text-slate-500 mb-1">导航</div>
+                        <div className="w-full h-full bg-slate-50 rounded relative overflow-hidden">
+                            {filteredNodes.map((node) => (
+                                <div
+                                    key={node.id}
+                                    className={`absolute w-2 h-2 rounded-full ${
+                                        node.type === 'datasource' ? 'bg-blue-500' :
+                                        node.type === 'table' ? 'bg-emerald-500' :
+                                        node.type === 'object' ? 'bg-purple-500' :
+                                        node.type === 'service' ? 'bg-orange-500' :
+                                        'bg-pink-500'
+                                    }`}
+                                    style={{ 
+                                        left: `${(node.x / 1200) * 100}%`, 
+                                        top: `${(node.y / 400) * 100}%` 
+                                    }}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* 主画布 */}
+                <div className="flex-1 overflow-auto bg-slate-50" style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'top left' }}>
+                    <div className="relative w-full h-full min-w-[1400px] min-h-[800px] p-8">
+                        {/* SVG连线层 */}
+                        <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+                            {filteredEdges.map((edge, index) => {
+                                const fromNode = filteredNodes.find(n => n.id === edge.from);
+                                const toNode = filteredNodes.find(n => n.id === edge.to);
                                 if (!fromNode || !toNode) return null;
+
+                                const strokeColor = getEdgeColor(edge.type, edge.strength);
+                                const strokeWidth = edge.strength === 'strong' ? 3 : edge.strength === 'medium' ? 2 : 1;
 
                                 return (
                                     <g key={index}>
                                         <line
-                                            x1={fromNode.x + 96}
-                                            y1={fromNode.y + 40}
+                                            x1={fromNode.x + 120}
+                                            y1={fromNode.y + 50}
                                             x2={toNode.x}
-                                            y2={toNode.y + 40}
-                                            stroke="#94a3b8"
-                                            strokeWidth="2"
+                                            y2={toNode.y + 50}
+                                            stroke={strokeColor}
+                                            strokeWidth={strokeWidth}
+                                            strokeDasharray={edge.type === 'invoke' ? '5,5' : 'none'}
                                             markerEnd="url(#arrowhead)"
+                                            className="transition-all duration-300"
                                         />
                                         <text
-                                            x={(fromNode.x + toNode.x + 96) / 2}
-                                            y={(fromNode.y + toNode.y + 40) / 2 - 5}
+                                            x={(fromNode.x + toNode.x + 120) / 2}
+                                            y={(fromNode.y + toNode.y + 50) / 2 - 8}
                                             textAnchor="middle"
-                                            className="text-xs fill-slate-500 bg-white"
+                                            className="text-xs fill-slate-600 font-medium"
+                                            style={{ textShadow: '1px 1px 2px white' }}
                                         >
                                             {edge.label}
                                         </text>
@@ -3507,108 +3888,242 @@ const DataLineageView = ({ businessObjects }: any) => {
                             <defs>
                                 <marker id="arrowhead" markerWidth="10" markerHeight="7" 
                                         refX="9" refY="3.5" orient="auto">
-                                    <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
+                                    <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
                                 </marker>
                             </defs>
                         </svg>
 
-                        {/* 渲染节点 */}
-                        {mockLineageData.nodes.map((node) => (
+                        {/* 节点层 */}
+                        {filteredNodes.map((node) => (
                             <div
                                 key={node.id}
-                                className={`absolute w-48 bg-white rounded-xl shadow-lg border-2 transition-all hover:-translate-y-1 cursor-pointer ${
-                                    selectedNode === node.id ? 'ring-2 ring-purple-500 ring-opacity-50' : ''
+                                className={`absolute w-60 bg-white rounded-xl shadow-lg border-2 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl cursor-pointer z-20 ${
+                                    selectedNode === node.id ? 'ring-4 ring-purple-500 ring-opacity-30 shadow-2xl' : ''
                                 } ${getNodeColor(node.type)}`}
                                 style={{ left: node.x, top: node.y }}
                                 onClick={() => setSelectedNode(selectedNode === node.id ? null : node.id)}
                             >
                                 <div className="p-4">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        {getNodeIcon(node.type)}
-                                        <div>
-                                            <div className="font-bold text-sm">{node.label}</div>
-                                            <div className="text-xs opacity-75">{node.description}</div>
+                                    <div className="flex items-start justify-between mb-3">
+                                        <div className="flex items-center gap-3 flex-1">
+                                            {getNodeIcon(node.type)}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-bold text-sm truncate">{node.label}</div>
+                                                <div className="text-xs opacity-75 line-clamp-2 leading-relaxed">{node.description}</div>
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-1">
+                                            {getStatusIndicator(node.status)}
+                                            <span className="text-xs font-medium capitalize px-2 py-0.5 bg-white bg-opacity-50 rounded">
+                                                {node.type}
+                                            </span>
                                         </div>
                                     </div>
-                                    <div className="flex justify-between items-center text-xs">
-                                        <span className="capitalize">{node.type}</span>
-                                        <span className={`px-2 py-0.5 rounded ${
-                                            node.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                                        }`}>
-                                            {node.status}
-                                        </span>
+                                    
+                                    {/* 节点统计信息 */}
+                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                        {node.records && (
+                                            <div>
+                                                <span className="text-slate-500">记录数:</span>
+                                                <span className="ml-1 font-medium">{node.records}</span>
+                                            </div>
+                                        )}
+                                        {node.qps && (
+                                            <div>
+                                                <span className="text-slate-500">QPS:</span>
+                                                <span className="ml-1 font-medium">{node.qps}</span>
+                                            </div>
+                                        )}
+                                        {node.size && (
+                                            <div>
+                                                <span className="text-slate-500">大小:</span>
+                                                <span className="ml-1 font-medium">{node.size}</span>
+                                            </div>
+                                        )}
+                                        {node.users && (
+                                            <div>
+                                                <span className="text-slate-500">用户:</span>
+                                                <span className="ml-1 font-medium">{node.users}</span>
+                                            </div>
+                                        )}
                                     </div>
+
+                                    {/* 标签 */}
+                                    {node.tags && node.tags.length > 0 && (
+                                        <div className="mt-3 pt-2 border-t border-white border-opacity-30">
+                                            <div className="flex flex-wrap gap-1">
+                                                {node.tags.slice(0, 3).map(tag => (
+                                                    <span key={tag} className="bg-white bg-opacity-50 text-xs px-2 py-0.5 rounded">
+                                                        {tag}
+                                                    </span>
+                                                ))}
+                                                {node.tags.length > 3 && (
+                                                    <span className="bg-white bg-opacity-50 text-xs px-2 py-0.5 rounded">
+                                                        +{node.tags.length - 3}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ))}
                     </div>
                 </div>
 
-                {/* 节点详情面板 */}
+                {/* 增强的节点详情面板 */}
                 {selectedNode && (
-                    <div className="absolute right-4 top-4 w-80 bg-white border border-slate-200 rounded-lg shadow-lg p-4 z-20">
-                        <div className="flex justify-between items-start mb-3">
-                            <h4 className="font-bold text-slate-800">节点详情</h4>
+                    <div className="absolute left-4 bottom-4 w-96 bg-white border border-slate-200 rounded-xl shadow-2xl z-30 max-h-96 overflow-y-auto">
+                        <div className="sticky top-0 bg-white border-b border-slate-100 px-4 py-3 flex justify-between items-center">
+                            <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                                <Eye size={16} />
+                                节点详情
+                            </h4>
                             <button 
                                 onClick={() => setSelectedNode(null)}
-                                className="text-slate-400 hover:text-slate-600"
+                                className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded p-1 transition-colors"
                             >
                                 <X size={16} />
                             </button>
                         </div>
                         {(() => {
-                            const node = mockLineageData.nodes.find(n => n.id === selectedNode);
+                            const node = filteredNodes.find(n => n.id === selectedNode);
                             if (!node) return null;
                             return (
-                                <div className="space-y-3">
-                                    <div className="flex items-center gap-2">
-                                        {getNodeIcon(node.type)}
-                                        <span className="font-medium">{node.label}</span>
-                                    </div>
-                                    <div className="text-sm text-slate-600">{node.description}</div>
-                                    <div className="grid grid-cols-2 gap-2 text-xs">
-                                        <div>
-                                            <span className="text-slate-500">类型:</span>
-                                            <span className="ml-1 capitalize">{node.type}</span>
+                                <div className="p-4 space-y-4">
+                                    {/* 基本信息 */}
+                                    <div className="flex items-start gap-3">
+                                        <div className={`p-2 rounded-lg ${getNodeColor(node.type).split(' ')[0]} ${getNodeColor(node.type).split(' ')[1]}`}>
+                                            {getNodeIcon(node.type)}
                                         </div>
-                                        <div>
-                                            <span className="text-slate-500">状态:</span>
-                                            <span className="ml-1">{node.status}</span>
+                                        <div className="flex-1">
+                                            <h5 className="font-bold text-slate-800">{node.label}</h5>
+                                            <p className="text-sm text-slate-600 mt-1">{node.description}</p>
+                                            <div className="flex items-center gap-2 mt-2">
+                                                {getStatusIndicator(node.status)}
+                                                <span className="text-xs text-slate-500 capitalize">{node.status}</span>
+                                                <span className="text-xs text-slate-400">•</span>
+                                                <span className="text-xs text-slate-500">{node.owner}</span>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div className="pt-2 border-t border-slate-100">
-                                        <div className="text-xs text-slate-500 mb-2">上游依赖:</div>
-                                        <div className="space-y-1">
-                                            {mockLineageData.edges
+
+                                    {/* 详细属性 */}
+                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                                        {node.records && (
+                                            <div className="bg-slate-50 p-2 rounded">
+                                                <div className="text-xs text-slate-500">记录数</div>
+                                                <div className="font-medium">{node.records}</div>
+                                            </div>
+                                        )}
+                                        {node.size && (
+                                            <div className="bg-slate-50 p-2 rounded">
+                                                <div className="text-xs text-slate-500">存储大小</div>
+                                                <div className="font-medium">{node.size}</div>
+                                            </div>
+                                        )}
+                                        {node.qps && (
+                                            <div className="bg-slate-50 p-2 rounded">
+                                                <div className="text-xs text-slate-500">QPS</div>
+                                                <div className="font-medium">{node.qps}</div>
+                                            </div>
+                                        )}
+                                        {node.latency && (
+                                            <div className="bg-slate-50 p-2 rounded">
+                                                <div className="text-xs text-slate-500">延迟</div>
+                                                <div className="font-medium">{node.latency}</div>
+                                            </div>
+                                        )}
+                                        {node.users && (
+                                            <div className="bg-slate-50 p-2 rounded">
+                                                <div className="text-xs text-slate-500">用户数</div>
+                                                <div className="font-medium">{node.users}</div>
+                                            </div>
+                                        )}
+                                        {node.version && (
+                                            <div className="bg-slate-50 p-2 rounded">
+                                                <div className="text-xs text-slate-500">版本</div>
+                                                <div className="font-medium">{node.version}</div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* 标签 */}
+                                    {node.tags && node.tags.length > 0 && (
+                                        <div>
+                                            <div className="text-xs text-slate-500 mb-2">标签</div>
+                                            <div className="flex flex-wrap gap-1">
+                                                {node.tags.map(tag => (
+                                                    <span key={tag} className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded">
+                                                        {tag}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* 上游依赖 */}
+                                    <div>
+                                        <div className="text-xs text-slate-500 mb-2 flex items-center gap-1">
+                                            <ArrowRight size={12} className="rotate-180" />
+                                            上游依赖 ({filteredEdges.filter(e => e.to === selectedNode).length})
+                                        </div>
+                                        <div className="space-y-1 max-h-24 overflow-y-auto">
+                                            {filteredEdges
                                                 .filter(e => e.to === selectedNode)
                                                 .map((edge, i) => {
-                                                    const fromNode = mockLineageData.nodes.find(n => n.id === edge.from);
+                                                    const fromNode = filteredNodes.find(n => n.id === edge.from);
                                                     return (
-                                                        <div key={i} className="text-xs flex items-center gap-1">
-                                                            <ArrowRight size={12} className="text-slate-400" />
-                                                            <span>{fromNode?.label}</span>
+                                                        <div key={i} className="text-xs flex items-center gap-2 p-2 bg-slate-50 rounded hover:bg-slate-100 cursor-pointer transition-colors"
+                                                             onClick={() => setSelectedNode(edge.from)}>
+                                                            {fromNode && getNodeIcon(fromNode.type)}
+                                                            <span className="flex-1">{fromNode?.label}</span>
+                                                            <span className="text-slate-400 text-xs">{edge.label}</span>
                                                         </div>
                                                     );
                                                 })
                                             }
+                                            {filteredEdges.filter(e => e.to === selectedNode).length === 0 && (
+                                                <div className="text-xs text-slate-400 italic">无上游依赖</div>
+                                            )}
                                         </div>
                                     </div>
-                                    <div className="pt-2 border-t border-slate-100">
-                                        <div className="text-xs text-slate-500 mb-2">下游影响:</div>
-                                        <div className="space-y-1">
-                                            {mockLineageData.edges
+
+                                    {/* 下游影响 */}
+                                    <div>
+                                        <div className="text-xs text-slate-500 mb-2 flex items-center gap-1">
+                                            <ArrowRight size={12} />
+                                            下游影响 ({filteredEdges.filter(e => e.from === selectedNode).length})
+                                        </div>
+                                        <div className="space-y-1 max-h-24 overflow-y-auto">
+                                            {filteredEdges
                                                 .filter(e => e.from === selectedNode)
                                                 .map((edge, i) => {
-                                                    const toNode = mockLineageData.nodes.find(n => n.id === edge.to);
+                                                    const toNode = filteredNodes.find(n => n.id === edge.to);
                                                     return (
-                                                        <div key={i} className="text-xs flex items-center gap-1">
-                                                            <ArrowRight size={12} className="text-slate-400" />
-                                                            <span>{toNode?.label}</span>
+                                                        <div key={i} className="text-xs flex items-center gap-2 p-2 bg-slate-50 rounded hover:bg-slate-100 cursor-pointer transition-colors"
+                                                             onClick={() => setSelectedNode(edge.to)}>
+                                                            {toNode && getNodeIcon(toNode.type)}
+                                                            <span className="flex-1">{toNode?.label}</span>
+                                                            <span className="text-slate-400 text-xs">{edge.label}</span>
                                                         </div>
                                                     );
                                                 })
                                             }
+                                            {filteredEdges.filter(e => e.from === selectedNode).length === 0 && (
+                                                <div className="text-xs text-slate-400 italic">无下游影响</div>
+                                            )}
                                         </div>
+                                    </div>
+
+                                    {/* 操作按钮 */}
+                                    <div className="flex gap-2 pt-2 border-t border-slate-100">
+                                        <button className="flex-1 px-3 py-2 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
+                                            查看详情
+                                        </button>
+                                        <button className="flex-1 px-3 py-2 text-xs bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition-colors">
+                                            影响分析
+                                        </button>
                                     </div>
                                 </div>
                             );
