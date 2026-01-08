@@ -614,9 +614,9 @@ const Sidebar = ({ activeModule, setActiveModule, isCollapsed, setIsCollapsed }:
                  <button 
                     onClick={() => setIsCollapsed(!isCollapsed)}
                     className="flex items-center justify-center p-2 rounded-lg hover:bg-slate-800 text-slate-500 hover:text-white transition-colors"
-                    title={isCollapsed ? "Expand Menu" : "Collapse Menu"}
+                    title={isCollapsed ? "展开菜单" : "收起菜单"}
                 >
-                    {isCollapsed ? <PanelLeftOpen size={20} /> : <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider"><PanelLeftClose size={16} /> <span>Collapse Menu</span></div>}
+                    {isCollapsed ? <PanelLeftOpen size={20} /> : <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider"><PanelLeftClose size={16} /> <span>收起菜单</span></div>}
                 </button>
 
                 <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'}`}>
