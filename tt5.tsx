@@ -546,7 +546,7 @@ const Sidebar = ({ activeModule, setActiveModule, isCollapsed, setIsCollapsed }:
             items: [
                 { id: 'mapping', label: '映射工作台 (SG-01)', icon: GitMerge },
                 { id: 'governance', label: '冲突检测 (SG-02)', icon: Shield },
-                { id: 'catalog', label: '统一元数据 (SG-04)', icon: BookIcon },
+                { id: 'catalog', label: '数据服务超市 (SG-04)', icon: BookIcon },
                 { id: 'lineage', label: '全链路血缘 (SG-05)', icon: GitBranch },
             ]
         },
@@ -646,7 +646,7 @@ const Header = ({ activeModule, showAssistant, setShowAssistant }: any) => {
             case 'bu_candidates': return '候选生成';
             case 'mapping': return '映射工作台';
             case 'governance': return '冲突检测与治理';
-            case 'catalog': return '统一元数据目录';
+            case 'catalog': return '数据服务超市';
             case 'ee_api': return 'API 服务网关';
             case 'ee_cache': return '缓存策略配置';
             case 'lineage': return '全链路血缘分析';
@@ -2664,114 +2664,162 @@ const ScenarioOrchestrationView = ({ businessObjects }: any) => {
     );
 };
 
-// --- 视图: 统一元数据 (SG-04) ---
+// --- 视图: 数据服务超市 (SG-04) ---
 const DataCatalogView = () => {
     const [activeTab, setActiveTab] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedAsset, setSelectedAsset] = useState<any>(null);
+    const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
 
-    // 模拟统一元数据
+    // 模拟数据服务超市
     const mockCatalogAssets = [
         { 
             id: 'AS_001', 
-            name: '新生儿 (Newborn)', 
-            type: 'Business Object', 
-            code: 'biz_newborn', 
-            owner: '卫健委业务处', 
+            name: '新生儿信息查询服务', 
+            type: 'Data Service', 
+            code: 'svc_newborn_query', 
+            owner: '卫健委数据中心', 
             quality: 98, 
-            status: 'Active', 
-            tags: ['核心', '人口', 'L1'], 
+            status: 'Online', 
+            tags: ['实时查询', '高频', 'REST API'], 
             lastUpdate: '2024-05-20',
-            description: '自然人出生登记的核心业务对象，记录新生儿基础身份信息。',
-            fields: 5,
-            usage: 'High',
-            lineage: ['t_pop_base_info', 'API_newborn_query']
+            description: '提供新生儿基础信息的实时查询服务，支持按身份证号、姓名等条件查询。',
+            price: '¥0.05/次',
+            calls: '12.5K/月',
+            sla: '99.9%',
+            responseTime: '45ms',
+            lineage: ['新生儿业务对象', 't_pop_base_info']
         },
         { 
             id: 'AS_002', 
-            name: '出生医学证明', 
-            type: 'Business Object', 
-            code: 'biz_birth_cert', 
+            name: '出生证明电子签发服务', 
+            type: 'Data Service', 
+            code: 'svc_birth_cert_issue', 
             owner: '医院管理处', 
-            quality: 85, 
-            status: 'Draft', 
-            tags: ['证照', 'L1'], 
+            quality: 92, 
+            status: 'Online', 
+            tags: ['电子证照', '业务流程', 'SOAP'], 
             lastUpdate: '2024-05-18',
-            description: '证明婴儿出生状态、血亲关系以及申报国籍、户籍取得公民身份的法定医学证明。',
-            fields: 3,
-            usage: 'Medium',
-            lineage: ['t_med_birth_cert']
+            description: '提供出生医学证明的电子签发服务，支持批量处理和状态跟踪。',
+            price: '¥2.00/次',
+            calls: '3.2K/月',
+            sla: '99.5%',
+            responseTime: '120ms',
+            lineage: ['出生医学证明', 't_med_birth_cert']
         },
         { 
             id: 'AS_003', 
-            name: 't_pop_base_info', 
-            type: 'Physical Table', 
-            code: 'hosp_db.t_pop_base', 
-            owner: 'DBA Team', 
-            quality: 100, 
-            status: 'Active', 
-            tags: ['MySQL', 'Raw'], 
+            name: '人口统计分析服务', 
+            type: 'Analytics Service', 
+            code: 'svc_pop_analytics', 
+            owner: '大数据中心', 
+            quality: 95, 
+            status: 'Online', 
+            tags: ['统计分析', '报表', 'GraphQL'], 
             lastUpdate: '2024-05-21',
-            description: '人口基础信息物理存储表，包含新生儿基本信息。',
-            fields: 7,
-            usage: 'High',
-            lineage: ['卫健委_前置库_01']
+            description: '提供人口数据的统计分析服务，支持多维度分析和可视化报表生成。',
+            price: '¥10.00/次',
+            calls: '850/月',
+            sla: '99.8%',
+            responseTime: '200ms',
+            lineage: ['人口基础数据', '统计模型']
         },
         { 
             id: 'AS_004', 
-            name: 't_med_birth_cert', 
-            type: 'Physical Table', 
-            code: 'hosp_db.t_cert', 
-            owner: 'DBA Team', 
-            quality: 92, 
-            status: 'Active', 
-            tags: ['MySQL', 'Raw'], 
-            lastUpdate: '2024-05-21',
-            description: '出生医学证明记录表，存储证明签发信息。',
-            fields: 6,
-            usage: 'Medium',
-            lineage: ['卫健委_前置库_01']
+            name: '疫苗接种记录服务', 
+            type: 'Data Service', 
+            code: 'svc_vaccine_record', 
+            owner: '疾控中心', 
+            quality: 88, 
+            status: 'Online', 
+            tags: ['健康档案', '实时同步', 'REST API'], 
+            lastUpdate: '2024-05-19',
+            description: '提供疫苗接种记录的查询和更新服务，支持接种计划管理。',
+            price: '¥0.08/次',
+            calls: '8.7K/月',
+            sla: '99.2%',
+            responseTime: '65ms',
+            lineage: ['疫苗接种表', '健康档案系统']
         },
         {
             id: 'AS_005',
-            name: '查询新生儿详情',
-            type: 'API Service',
-            code: 'api_newborn_detail',
-            owner: 'API Team',
-            quality: 95,
-            status: 'Active',
-            tags: ['REST', 'Public'],
-            lastUpdate: '2024-05-19',
-            description: '提供新生儿基础信息查询的REST API服务。',
-            fields: 0,
-            usage: 'High',
-            lineage: ['新生儿 (Newborn)']
+            name: '身份验证服务',
+            type: 'Security Service',
+            code: 'svc_identity_verify',
+            owner: '公安数据中心',
+            quality: 99,
+            status: 'Online',
+            tags: ['身份认证', '安全', 'OAuth2'],
+            lastUpdate: '2024-05-20',
+            description: '提供身份证号码验证和人员身份认证服务，确保数据访问安全。',
+            price: '¥0.15/次',
+            calls: '25.6K/月',
+            sla: '99.95%',
+            responseTime: '30ms',
+            lineage: ['公安人口库', '身份认证系统']
         },
         {
             id: 'AS_006',
-            name: '出生一件事场景',
-            type: 'Business Scenario',
-            code: 'scenario_birth_onestop',
-            owner: '业务架构师',
-            quality: 88,
-            status: 'Active',
-            tags: ['场景', '一件事'],
-            lastUpdate: '2024-05-20',
-            description: '整合出生医学证明、户口登记、医保参保等多个事项的业务场景。',
-            fields: 0,
-            usage: 'Medium',
-            lineage: ['新生儿 (Newborn)', '出生医学证明']
+            name: '出生一件事编排服务',
+            type: 'Workflow Service',
+            code: 'svc_birth_workflow',
+            owner: '政务服务中心',
+            quality: 90,
+            status: 'Online',
+            tags: ['业务编排', '一件事', '流程引擎'],
+            lastUpdate: '2024-05-18',
+            description: '整合出生医学证明、户口登记、医保参保等多个事项的一站式服务编排。',
+            price: '¥5.00/次',
+            calls: '1.2K/月',
+            sla: '99.0%',
+            responseTime: '500ms',
+            lineage: ['多个业务系统', '流程引擎']
+        },
+        {
+            id: 'AS_007',
+            name: '数据质量监控服务',
+            type: 'Quality Service',
+            code: 'svc_data_quality',
+            owner: '数据治理团队',
+            quality: 96,
+            status: 'Online',
+            tags: ['数据质量', '监控告警', 'WebSocket'],
+            lastUpdate: '2024-05-21',
+            description: '提供实时数据质量监控和异常告警服务，支持自定义质量规则。',
+            price: '¥50.00/月',
+            calls: '实时监控',
+            sla: '99.7%',
+            responseTime: '实时',
+            lineage: ['所有数据源', '质量规则引擎']
+        },
+        {
+            id: 'AS_008',
+            name: '地址标准化服务',
+            type: 'Data Service',
+            code: 'svc_address_standard',
+            owner: '地理信息中心',
+            quality: 94,
+            status: 'Online',
+            tags: ['地址解析', '标准化', 'REST API'],
+            lastUpdate: '2024-05-19',
+            description: '提供地址信息的标准化和地理编码服务，支持模糊匹配和纠错。',
+            price: '¥0.12/次',
+            calls: '15.3K/月',
+            sla: '99.6%',
+            responseTime: '80ms',
+            lineage: ['地址库', 'GIS系统']
         }
     ];
 
     const [assets, setAssets] = useState(mockCatalogAssets);
 
     const filterTabs = [
-        { id: 'all', label: '全部资产', count: assets.length },
-        { id: 'Business Object', label: '业务对象', count: assets.filter(a => a.type === 'Business Object').length },
-        { id: 'Physical Table', label: '物理表', count: assets.filter(a => a.type === 'Physical Table').length },
-        { id: 'API Service', label: 'API服务', count: assets.filter(a => a.type === 'API Service').length },
-        { id: 'Business Scenario', label: '业务场景', count: assets.filter(a => a.type === 'Business Scenario').length }
+        { id: 'all', label: '全部服务', count: assets.length },
+        { id: 'Data Service', label: '数据服务', count: assets.filter(a => a.type === 'Data Service').length },
+        { id: 'Analytics Service', label: '分析服务', count: assets.filter(a => a.type === 'Analytics Service').length },
+        { id: 'Security Service', label: '安全服务', count: assets.filter(a => a.type === 'Security Service').length },
+        { id: 'Workflow Service', label: '流程服务', count: assets.filter(a => a.type === 'Workflow Service').length },
+        { id: 'Quality Service', label: '质量服务', count: assets.filter(a => a.type === 'Quality Service').length }
     ];
 
     const filteredAssets = assets.filter(asset => {
@@ -2784,20 +2832,22 @@ const DataCatalogView = () => {
 
     const getTypeIcon = (type: string) => {
         switch (type) {
-            case 'Business Object': return <Box size={20} className="text-blue-600" />;
-            case 'Physical Table': return <Database size={20} className="text-emerald-600" />;
-            case 'API Service': return <Server size={20} className="text-purple-600" />;
-            case 'Business Scenario': return <Layers size={20} className="text-orange-600" />;
-            default: return <FileText size={20} className="text-slate-600" />;
+            case 'Data Service': return <Server size={20} className="text-blue-600" />;
+            case 'Analytics Service': return <BarChart3 size={20} className="text-emerald-600" />;
+            case 'Security Service': return <Shield size={20} className="text-red-600" />;
+            case 'Workflow Service': return <Layers size={20} className="text-purple-600" />;
+            case 'Quality Service': return <CheckCircle size={20} className="text-orange-600" />;
+            default: return <Globe size={20} className="text-slate-600" />;
         }
     };
 
     const getTypeColor = (type: string) => {
         switch (type) {
-            case 'Business Object': return 'bg-blue-100 text-blue-700 border-blue-200';
-            case 'Physical Table': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-            case 'API Service': return 'bg-purple-100 text-purple-700 border-purple-200';
-            case 'Business Scenario': return 'bg-orange-100 text-orange-700 border-orange-200';
+            case 'Data Service': return 'bg-blue-100 text-blue-700 border-blue-200';
+            case 'Analytics Service': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+            case 'Security Service': return 'bg-red-100 text-red-700 border-red-200';
+            case 'Workflow Service': return 'bg-purple-100 text-purple-700 border-purple-200';
+            case 'Quality Service': return 'bg-orange-100 text-orange-700 border-orange-200';
             default: return 'bg-slate-100 text-slate-700 border-slate-200';
         }
     };
@@ -2807,14 +2857,40 @@ const DataCatalogView = () => {
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                        <Book size={24} className="text-blue-600" />
-                        统一元数据目录
+                        <Globe size={24} className="text-blue-600" />
+                        数据服务超市
                     </h2>
-                    <p className="text-slate-500 mt-1">企业级数据资产统一管理和发现平台</p>
+                    <p className="text-slate-500 mt-1">企业级数据服务统一发布和订阅平台</p>
                 </div>
-                <button className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm shadow-blue-200">
-                    <Plus size={16} /> 注册资产
-                </button>
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center bg-slate-100 rounded-lg p-1">
+                        <button
+                            onClick={() => setViewMode('card')}
+                            className={`p-2 rounded-md transition-all ${
+                                viewMode === 'card'
+                                    ? 'bg-white text-blue-600 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                            title="卡片视图"
+                        >
+                            <Box size={16} />
+                        </button>
+                        <button
+                            onClick={() => setViewMode('list')}
+                            className={`p-2 rounded-md transition-all ${
+                                viewMode === 'list'
+                                    ? 'bg-white text-blue-600 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                            title="列表视图"
+                        >
+                            <List size={16} />
+                        </button>
+                    </div>
+                    <button className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm shadow-blue-200">
+                        <Plus size={16} /> 发布服务
+                    </button>
+                </div>
             </div>
 
             {/* 搜索和过滤 */}
@@ -2846,7 +2922,7 @@ const DataCatalogView = () => {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="搜索资产名称、编码或标签..."
+                                placeholder="搜索服务名称、编码或标签..."
                                 className="pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-blue-500 w-80 shadow-sm"
                             />
                         </div>
@@ -2857,84 +2933,166 @@ const DataCatalogView = () => {
                 </div>
             </div>
 
-            {/* 资产网格 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredAssets.map(asset => (
-                    <div 
-                        key={asset.id} 
-                        className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all cursor-pointer group"
-                        onClick={() => setSelectedAsset(asset)}
-                    >
-                        <div className="flex justify-between items-start mb-4">
-                            <div className="flex items-center gap-3">
-                                <div className={`p-3 rounded-lg ${getTypeColor(asset.type)}`}>
-                                    {getTypeIcon(asset.type)}
+            {/* 服务展示区域 */}
+            {viewMode === 'card' ? (
+                /* 卡片视图 */
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filteredAssets.map(asset => (
+                        <div 
+                            key={asset.id} 
+                            className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all cursor-pointer group"
+                            onClick={() => setSelectedAsset(asset)}
+                        >
+                            <div className="flex justify-between items-start mb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-3 rounded-lg ${getTypeColor(asset.type)}`}>
+                                        {getTypeIcon(asset.type)}
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-lg text-slate-800 group-hover:text-blue-600 transition-colors">
+                                            {asset.name}
+                                        </h3>
+                                        <p className="text-xs text-slate-400 font-mono">{asset.code}</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h3 className="font-bold text-lg text-slate-800 group-hover:text-blue-600 transition-colors">
-                                        {asset.name}
-                                    </h3>
-                                    <p className="text-xs text-slate-400 font-mono">{asset.code}</p>
+                                <div className="flex flex-col items-end gap-1">
+                                    <span className={`text-xs font-bold px-2 py-1 rounded ${
+                                        asset.status === 'Online' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                        {asset.status}
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                        <Star size={12} className="text-yellow-500" />
+                                        <span className="text-xs font-bold text-slate-600">QS: {asset.quality}</span>
+                                    </div>
                                 </div>
                             </div>
-                            <div className="flex flex-col items-end gap-1">
-                                <span className={`text-xs font-bold px-2 py-1 rounded ${
-                                    asset.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                                }`}>
-                                    {asset.status}
-                                </span>
-                                <div className="flex items-center gap-1">
-                                    <Star size={12} className="text-yellow-500" />
-                                    <span className="text-xs font-bold text-slate-600">QS: {asset.quality}</span>
-                                </div>
-                            </div>
-                        </div>
 
-                        <p className="text-sm text-slate-600 mb-4 line-clamp-2 leading-relaxed">
-                            {asset.description}
-                        </p>
+                            <p className="text-sm text-slate-600 mb-4 line-clamp-2 leading-relaxed">
+                                {asset.description}
+                            </p>
 
-                        <div className="space-y-3">
-                            <div className="flex items-center justify-between text-sm">
-                                <span className="text-slate-500">负责人:</span>
-                                <span className="font-medium text-slate-700">{asset.owner}</span>
-                            </div>
-                            
-                            {asset.fields > 0 && (
+                            <div className="space-y-3">
                                 <div className="flex items-center justify-between text-sm">
-                                    <span className="text-slate-500">字段数:</span>
-                                    <span className="font-medium text-slate-700">{asset.fields}</span>
+                                    <span className="text-slate-500">服务提供方:</span>
+                                    <span className="font-medium text-slate-700">{asset.owner}</span>
                                 </div>
-                            )}
+                                
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-500">调用价格:</span>
+                                    <span className="font-medium text-emerald-600">{asset.price}</span>
+                                </div>
 
-                            <div className="flex items-center justify-between text-sm">
-                                <span className="text-slate-500">使用频率:</span>
-                                <span className={`font-medium ${
-                                    asset.usage === 'High' ? 'text-emerald-600' :
-                                    asset.usage === 'Medium' ? 'text-orange-600' : 'text-slate-600'
-                                }`}>
-                                    {asset.usage}
-                                </span>
-                            </div>
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-500">月调用量:</span>
+                                    <span className="font-medium text-slate-700">{asset.calls}</span>
+                                </div>
 
-                            <div className="pt-2 border-t border-slate-100">
-                                <div className="flex flex-wrap gap-1">
-                                    {asset.tags.map(tag => (
-                                        <span key={tag} className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs">
-                                            {tag}
-                                        </span>
-                                    ))}
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-500">SLA保障:</span>
+                                    <span className={`font-medium ${
+                                        parseFloat(asset.sla) >= 99.5 ? 'text-emerald-600' : 'text-orange-600'
+                                    }`}>
+                                        {asset.sla}
+                                    </span>
+                                </div>
+
+                                <div className="pt-2 border-t border-slate-100">
+                                    <div className="flex flex-wrap gap-1">
+                                        {asset.tags.map(tag => (
+                                            <span key={tag} className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs">
+                                                {tag}
+                                            </span>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                    ))}
+                </div>
+            ) : (
+                /* 列表视图 */
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead className="bg-slate-50 border-b border-slate-200">
+                                <tr>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">服务名称</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">类型</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">提供方</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">价格</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">调用量</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">SLA</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">响应时间</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">状态</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredAssets.map(asset => (
+                                    <tr key={asset.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                                        <td className="py-4 px-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`p-2 rounded-lg ${getTypeColor(asset.type)}`}>
+                                                    {getTypeIcon(asset.type)}
+                                                </div>
+                                                <div>
+                                                    <div className="font-medium text-slate-800">{asset.name}</div>
+                                                    <div className="text-xs text-slate-500 font-mono">{asset.code}</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="py-4 px-4">
+                                            <span className={`px-2 py-1 rounded text-xs font-medium ${getTypeColor(asset.type)}`}>
+                                                {asset.type}
+                                            </span>
+                                        </td>
+                                        <td className="py-4 px-4 text-sm text-slate-600">{asset.owner}</td>
+                                        <td className="py-4 px-4 text-sm font-medium text-emerald-600">{asset.price}</td>
+                                        <td className="py-4 px-4 text-sm text-slate-600">{asset.calls}</td>
+                                        <td className="py-4 px-4">
+                                            <span className={`text-sm font-medium ${
+                                                parseFloat(asset.sla) >= 99.5 ? 'text-emerald-600' : 'text-orange-600'
+                                            }`}>
+                                                {asset.sla}
+                                            </span>
+                                        </td>
+                                        <td className="py-4 px-4 text-sm text-slate-600">{asset.responseTime}</td>
+                                        <td className="py-4 px-4">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                asset.status === 'Online' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                                            }`}>
+                                                {asset.status}
+                                            </span>
+                                        </td>
+                                        <td className="py-4 px-4">
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedAsset(asset);
+                                                    }}
+                                                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                                >
+                                                    查看
+                                                </button>
+                                                <button className="text-emerald-600 hover:text-emerald-800 text-sm font-medium">
+                                                    订阅
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
-                ))}
-            </div>
+                </div>
+            )}
 
             {filteredAssets.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-64 text-slate-400 bg-white rounded-xl border border-slate-200">
                     <Search size={48} className="mb-4 text-slate-200" />
-                    <p className="text-lg font-medium">未找到匹配的资产</p>
+                    <p className="text-lg font-medium">未找到匹配的服务</p>
                     <p className="text-sm mt-1">尝试调整搜索条件或筛选器</p>
                     <button
                         onClick={() => { setSearchTerm(''); setActiveTab('all'); }}
@@ -2945,7 +3103,7 @@ const DataCatalogView = () => {
                 </div>
             )}
 
-            {/* 资产详情模态框 */}
+            {/* 服务详情模态框 */}
             {selectedAsset && (
                 <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-fade-in-up">
@@ -2969,15 +3127,33 @@ const DataCatalogView = () => {
 
                         <div className="p-6 space-y-6">
                             <div>
-                                <h4 className="font-bold text-sm text-slate-700 mb-2">基本信息</h4>
+                                <h4 className="font-bold text-sm text-slate-700 mb-2">服务信息</h4>
                                 <div className="grid grid-cols-2 gap-4 text-sm">
                                     <div>
-                                        <span className="text-slate-500">编码:</span>
+                                        <span className="text-slate-500">服务编码:</span>
                                         <span className="ml-2 font-mono text-slate-700">{selectedAsset.code}</span>
                                     </div>
                                     <div>
-                                        <span className="text-slate-500">负责人:</span>
+                                        <span className="text-slate-500">服务提供方:</span>
                                         <span className="ml-2 text-slate-700">{selectedAsset.owner}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-slate-500">调用价格:</span>
+                                        <span className="ml-2 font-bold text-emerald-600">{selectedAsset.price}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-slate-500">月调用量:</span>
+                                        <span className="ml-2 text-slate-700">{selectedAsset.calls}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-slate-500">SLA保障:</span>
+                                        <span className={`ml-2 font-bold ${
+                                            parseFloat(selectedAsset.sla) >= 99.5 ? 'text-emerald-600' : 'text-orange-600'
+                                        }`}>{selectedAsset.sla}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-slate-500">响应时间:</span>
+                                        <span className="ml-2 text-slate-700">{selectedAsset.responseTime}</span>
                                     </div>
                                     <div>
                                         <span className="text-slate-500">质量分:</span>
@@ -2991,12 +3167,12 @@ const DataCatalogView = () => {
                             </div>
 
                             <div>
-                                <h4 className="font-bold text-sm text-slate-700 mb-2">描述</h4>
+                                <h4 className="font-bold text-sm text-slate-700 mb-2">服务描述</h4>
                                 <p className="text-sm text-slate-600 leading-relaxed">{selectedAsset.description}</p>
                             </div>
 
                             <div>
-                                <h4 className="font-bold text-sm text-slate-700 mb-2">标签</h4>
+                                <h4 className="font-bold text-sm text-slate-700 mb-2">服务标签</h4>
                                 <div className="flex flex-wrap gap-2">
                                     {selectedAsset.tags.map((tag: string) => (
                                         <span key={tag} className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-sm">
@@ -3007,7 +3183,7 @@ const DataCatalogView = () => {
                             </div>
 
                             <div>
-                                <h4 className="font-bold text-sm text-slate-700 mb-2">血缘关系</h4>
+                                <h4 className="font-bold text-sm text-slate-700 mb-2">数据血缘</h4>
                                 <div className="space-y-2">
                                     {selectedAsset.lineage.map((item: string, index: number) => (
                                         <div key={index} className="flex items-center gap-2 text-sm">
@@ -3026,8 +3202,11 @@ const DataCatalogView = () => {
                             >
                                 关闭
                             </button>
+                            <button className="px-4 py-2 text-sm text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors">
+                                订阅服务
+                            </button>
                             <button className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors">
-                                编辑资产
+                                查看API文档
                             </button>
                         </div>
                     </div>
