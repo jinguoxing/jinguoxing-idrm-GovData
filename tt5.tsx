@@ -841,950 +841,14 @@ const AIAssistantPanel = ({ visible, onClose, activeModule, contextData }: any) 
     );
 };
 
-// ==========================================
-// 5. 功能视图组件 (Feature Views - Restored)
-// ==========================================
-
-const SmartAskDataPanel = () => {
-    const [messages, setMessages] = useState<any[]>([]);
-    const [input, setInput] = useState('');
-    const [isTyping, setIsTyping] = useState(false);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
-
-    useEffect(() => scrollToBottom(), [messages]);
-
-    const handleSend = async () => {
-        if (!input.trim()) return;
-        const userText = input;
-        setInput('');
-        setMessages(prev => [...prev, { type: 'user', content: userText }]);
-        setIsTyping(true);
-
-        try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const systemInstruction = `You are a "Text-to-SQL" and "Data Analysis" assistant.
-            Generate a mock SQL query based on the user question and provide a summary answer.
-            Format response in Markdown.`;
-
-            const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: [{ role: 'user', parts: [{ text: `[Context: ${systemInstruction}] User Question: ${userText}` }] }]
-            });
-
-            setMessages(prev => [...prev, { type: 'bot', content: response.text }]);
-        } catch (e) {
-            setMessages(prev => [...prev, { type: 'bot', content: "Sorry, I couldn't process that query right now." }]);
-        } finally {
-            setIsTyping(false);
-        }
-    };
-
-    return (
-        <div className="w-80 border-l border-slate-200 bg-white flex flex-col h-full shadow-sm z-10">
-            <div className="p-4 border-b border-slate-100 flex items-center gap-2 bg-gradient-to-r from-blue-50 to-white">
-                <MessageCircle size={18} className="text-blue-600" />
-                <h3 className="font-bold text-slate-800 text-sm">智能问数 (Smart Q&A)</h3>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30 custom-scrollbar">
-                {messages.length === 0 && (
-                    <div className="text-center text-slate-400 mt-10 px-4">
-                        <Sparkles size={32} className="mx-auto mb-3 text-blue-300" />
-                        <p className="text-sm font-medium text-slate-600">想知道什么数据？</p>
-                        <p className="text-xs mt-1">试试问我：<br/>"查询上个月的新生儿数量"<br/>"按医院统计出生证明分布"</p>
-                    </div>
-                )}
-                {messages.map((m, i) => (
-                    <div key={i} className={`flex ${m.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[90%] rounded-2xl px-3 py-2 text-xs leading-relaxed shadow-sm ${
-                            m.type === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'
-                        }`}>
-                            {m.type === 'bot' ? (
-                                <div className="markdown-body" dangerouslySetInnerHTML={{__html: m.content.replace(/\n/g, '<br/>').replace(/```sql/g, '<pre class="bg-slate-100 p-2 rounded mt-1 border border-slate-200 font-mono text-[10px]">').replace(/```/g, '</pre>')}} />
-                            ) : m.content}
-                        </div>
-                    </div>
-                ))}
-                {isTyping && (
-                    <div className="flex justify-start">
-                        <div className="bg-white border border-slate-200 px-3 py-2 rounded-2xl rounded-bl-none shadow-sm">
-                            <RefreshCw size={12} className="animate-spin text-blue-500" />
-                        </div>
-                    </div>
-                )}
-                <div ref={messagesEndRef} />
-            </div>
-
-            <div className="p-3 border-t border-slate-100 bg-white">
-                <div className="relative">
-                    <input 
-                        className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
-                        placeholder="输入您的业务问题..."
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                    />
-                    <button 
-                        onClick={handleSend}
-                        className="absolute right-1 top-1 p-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-                    >
-                        <ArrowUpRight size={14} />
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const DataCatalogView = () => {
-    const [activeTab, setActiveTab] = useState('All');
-    const [searchQuery, setSearchQuery] = useState('');
-
-    const stats = [
-        { label: '总资产数', value: 8, icon: Layers, color: 'text-slate-600 bg-slate-100' },
-        { label: '业务对象', value: 3, icon: Box, color: 'text-blue-600 bg-blue-50 border-blue-100' },
-        { label: '物理表', value: 3, icon: Database, color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
-        { label: '映射关系', value: 2, icon: GitMerge, color: 'text-purple-600 bg-purple-50 border-purple-100' },
-    ];
-
-    const filterAssets = (assets: any) => {
-        return assets.filter((asset: any) => {
-            const matchesTab = 
-                activeTab === 'All' ? true :
-                activeTab === 'Business Object' ? asset.type === 'Business Object' :
-                activeTab === 'Physical Table' ? asset.type === 'Physical Table' :
-                activeTab === 'Mapping' ? asset.type === 'Mapping' : true;
-            
-            const matchesSearch = 
-                asset.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                asset.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                asset.desc?.toLowerCase().includes(searchQuery.toLowerCase());
-
-            return matchesTab && matchesSearch;
-        });
-    };
-
-    const getIcon = (type: any) => {
-        switch(type) {
-            case 'Business Object': return <Box size={20} className="text-blue-600" />;
-            case 'Physical Table': return <Database size={20} className="text-emerald-600" />;
-            case 'Mapping': return <GitMerge size={20} className="text-purple-600" />;
-            default: return <FileText size={20} />;
-        }
-    };
-
-    return (
-        <div className="flex h-full">
-            <div className="flex-1 flex flex-col gap-6 overflow-y-auto p-2 pr-4 custom-scrollbar">
-                {/* 1. Summary Cards */}
-                <div className="grid grid-cols-4 gap-4">
-                    {stats.map((stat, i) => (
-                        <div key={i} className={`p-4 rounded-xl border border-slate-200 bg-white shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow`}>
-                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${stat.color}`}>
-                                <stat.icon size={24} />
-                            </div>
-                            <div>
-                                <div className="text-2xl font-bold text-slate-800">{stat.value}</div>
-                                <div className="text-xs text-slate-500 font-medium">{stat.label}</div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-
-                {/* 2. Toolbar */}
-                <div className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
-                    <div className="flex gap-1">
-                        {['All', 'Business Object', 'Physical Table', 'Mapping'].map(tab => (
-                            <button
-                                key={tab}
-                                onClick={() => setActiveTab(tab)}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                    activeTab === tab 
-                                    ? 'bg-purple-50 text-purple-700' 
-                                    : 'text-slate-600 hover:bg-slate-50'
-                                }`}
-                            >
-                                {tab === 'All' ? '全部' : 
-                                 tab === 'Business Object' ? '业务对象' :
-                                 tab === 'Physical Table' ? '物理表' : '映射关系'}
-                                <span className={`ml-2 px-1.5 py-0.5 rounded-full text-[10px] ${activeTab === tab ? 'bg-purple-200 text-purple-800' : 'bg-slate-200 text-slate-500'}`}>
-                                    {tab === 'All' ? mockCatalogAssets.length : mockCatalogAssets.filter(a => a.type === tab).length}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
-                    <div className="relative w-64">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                        <input 
-                            type="text" 
-                            placeholder="搜索资产名称、代码或描述..." 
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/20"
-                        />
-                    </div>
-                </div>
-
-                {/* 3. Asset Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-6">
-                    {filterAssets(mockCatalogAssets).map((asset: any) => (
-                        <div key={asset.id} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all group cursor-pointer flex flex-col h-full">
-                            <div className="flex items-start justify-between mb-3">
-                                <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg ${
-                                        asset.type === 'Business Object' ? 'bg-blue-50' : 
-                                        asset.type === 'Physical Table' ? 'bg-emerald-50' : 'bg-purple-50'
-                                    }`}>
-                                        {getIcon(asset.type)}
-                                    </div>
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <h3 className="font-bold text-slate-800 text-sm group-hover:text-blue-600 transition-colors">{asset.name}</h3>
-                                        </div>
-                                        <div className="text-xs text-slate-400 font-mono mt-0.5">{asset.code}</div>
-                                    </div>
-                                </div>
-                            </div>
-                            <p className="text-sm text-slate-600 mb-4 line-clamp-2 flex-grow">{asset.desc}</p>
-                            <div className="flex flex-wrap gap-1 mt-auto pt-3 border-t border-slate-50">
-                                {asset.tags.map((tag: any) => (
-                                    <span key={tag} className="px-2 py-0.5 bg-slate-50 border border-slate-100 text-slate-500 text-[10px] rounded">
-                                        {tag}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Right: Smart Ask Data Panel */}
-            <SmartAskDataPanel />
-        </div>
-    );
-};
-
-const DashboardView = ({ setActiveModule }: any) => (
-    <div className="space-y-6 max-w-7xl mx-auto animate-fade-in">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <StatCard label="L1 业务对象" value="142" trend="+3" icon={Layout} color="blue" />
-            <StatCard label="已扫描物理表" value="8,920" trend="+12" icon={Database} color="emerald" />
-            <StatCard label="已对齐映射" value="89" trend="65%" icon={GitMerge} color="purple" />
-            <StatCard label="API 服务调用" value="1.2M" trend="High" icon={Server} color="orange" />
-        </div>
-
-        {/* 核心架构可视化卡片 */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8">
-            <div className="flex items-center justify-between mb-8">
-                <div>
-                    <h2 className="text-lg font-bold text-slate-800">语义层构建流水线</h2>
-                    <p className="text-slate-500 text-sm">业务模型与技术实现的融合状态</p>
-                </div>
-                <div className="flex gap-2">
-                    <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 flex items-center gap-1">
-                        <Activity size={12} /> System Healthy
-                    </span>
-                </div>
-            </div>
-
-            <div className="flex items-stretch gap-8">
-                {/* 左侧 TD 流 */}
-                <div className="flex-1 bg-blue-50/50 rounded-xl border border-blue-100 p-5 relative overflow-hidden group hover:border-blue-300 transition-colors cursor-pointer" onClick={() => setActiveModule('td_modeling')}>
-                    <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <Layout size={80} className="text-blue-500" />
-                    </div>
-                    <h3 className="text-blue-900 font-bold mb-4 flex items-center gap-2">
-                        <span className="w-2 h-2 bg-blue-500 rounded-full"></span> 业务意图
-                    </h3>
-                    <div className="space-y-3 relative z-10">
-                        <StepItem status="done" text="A1. 政策文件解析 (出生一件事)" />
-                        <StepItem status="done" text="A2. L1 业务对象定义 (142个)" />
-                        <StepItem status="process" text="A4. 场景语义编排" />
-                    </div>
-                </div>
-
-                {/* 中间 汇聚流 */}
-                <div className="w-48 flex flex-col justify-center items-center relative">
-                    <div className="absolute inset-x-0 top-1/2 h-0.5 bg-slate-200 -z-10"></div>
-                    <div className="bg-white p-4 rounded-full border-2 border-purple-100 shadow-lg mb-4 hover:scale-110 transition-transform cursor-pointer z-10" onClick={() => setActiveModule('mapping')}>
-                        <div className="bg-purple-100 p-3 rounded-full text-purple-600">
-                            <GitMerge size={32} />
-                        </div>
-                    </div>
-                    <div className="text-center">
-                        <div className="font-bold text-slate-800">语义对齐</div>
-                        <div className="text-xs text-slate-500 mt-1">冲突检测中...</div>
-                    </div>
-                </div>
-
-                {/* 右侧 BU 流 */}
-                <div className="flex-1 bg-emerald-50/50 rounded-xl border border-emerald-100 p-5 relative overflow-hidden group hover:border-emerald-300 transition-colors cursor-pointer" onClick={() => setActiveModule('bu_discovery')}>
-                    <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <Database size={80} className="text-emerald-500" />
-                    </div>
-                    <h3 className="text-emerald-900 font-bold mb-4 flex items-center gap-2">
-                        <span className="w-2 h-2 bg-emerald-500 rounded-full"></span> 技术实现
-                    </h3>
-                    <div className="space-y-3 relative z-10">
-                        <StepItem status="done" text="B1. 挂载卫健委前置机 (MySQL)" />
-                        <StepItem status="done" text="B2. 自动元数据采集" />
-                        <StepItem status="done" text="B4. 候选对象生成 (AI 识别)" />
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-);
-
-const CandidateGenerationView = ({ candidates, setCandidates, setBusinessObjects, setActiveModule, setSelectedBO, dataSources, scanAssets }: any) => {
-    const [viewMode, setViewMode] = useState<'source' | 'cluster'>('cluster');
-    const [selectedGroup, setSelectedGroup] = useState<string>('All');
-    const [expandedId, setExpandedId] = useState(null);
-
-    const toggleExpand = (id: any) => {
-        setExpandedId(expandedId === id ? null : id);
-    };
-
-    const handleAdopt = (cand: any) => {
-        const newBO = {
-            id: `BO_${Date.now()}`,
-            name: cand.suggestedName,
-            code: `biz_${cand.sourceTable.replace(/^t_/, '')}`,
-            domain: 'AI Discovered',
-            owner: 'System',
-            status: 'draft',
-            version: 'v0.1',
-            description: cand.reason,
-            sourceTables: [cand.sourceTable],
-            fields: cand.previewFields ? cand.previewFields.map((pf: any, idx: number) => ({
-                id: `f_${Date.now()}_${idx}`,
-                name: pf.attr,
-                code: pf.col,
-                type: pf.type.includes('int') ? 'Integer' : pf.type.includes('date') ? 'DateTime' : 'String',
-                length: '-',
-                required: false,
-                desc: 'Auto-generated from ' + pf.col
-            })) : []
-        };
-
-        setBusinessObjects((prev: any) => [newBO, ...prev]);
-        setCandidates((prev: any) => prev.filter((c: any) => c.id !== cand.id));
-        setSelectedBO(newBO);
-        setActiveModule('td_modeling');
-    };
-
-    // Helper: Get Cluster Name (Heuristic)
-    const getClusterName = (cand: any) => {
-        const lower = cand.sourceTable.toLowerCase();
-        if (lower.includes('newborn') || lower.includes('birth') || lower.includes('pop') || lower.includes('med')) return '出生一件事';
-        if (lower.includes('vac')) return '疫苗管理';
-        if (lower.includes('hosp') || lower.includes('dict')) return '基础资源';
-        return '未分类';
-    };
-
-    const groupedData = useMemo(() => {
-        const groups: any = { 'All': [] };
-        
-        candidates.forEach((c: any) => {
-            groups['All'].push(c);
-            let key = viewMode === 'source' ? 'Unknown Source' : getClusterName(c);
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(c);
-        });
-        return groups;
-    }, [candidates, viewMode]);
-
-    const groupKeys = Object.keys(groupedData).filter(k => k !== 'All').sort();
-    const filteredCandidates = groupedData[selectedGroup] || [];
-
-    return (
-        <div className="space-y-6 h-full flex flex-col animate-fade-in">
-            <div className="flex justify-between items-center shrink-0">
-                <div>
-                    <h2 className="text-2xl font-bold text-slate-800">候选生成 (Candidates)</h2>
-                    <p className="text-sm text-slate-500 mt-1">AI 推荐的潜在业务对象，按业务域或来源聚类。</p>
-                </div>
-            </div>
-
-            <div className="flex-1 flex gap-6 overflow-hidden">
-                {/* Left Sidebar: Filter Tree */}
-                <div className="w-64 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden shrink-0">
-                    <div className="p-4 border-b border-slate-100 bg-slate-50">
-                        <div className="flex bg-slate-200 p-0.5 rounded-lg mb-3">
-                            <button 
-                                onClick={() => setViewMode('source')}
-                                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1 ${viewMode === 'source' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <Building2 size={12} /> 按部门/来源
-                            </button>
-                            <button 
-                                onClick={() => setViewMode('cluster')}
-                                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1 ${viewMode === 'cluster' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <Sparkles size={12} /> 智能聚类
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-                        <div 
-                            onClick={() => setSelectedGroup('All')}
-                            className={`px-3 py-2 rounded-lg cursor-pointer flex justify-between items-center text-sm font-medium transition-colors ${selectedGroup === 'All' ? 'bg-purple-50 text-purple-700' : 'text-slate-600 hover:bg-slate-50'}`}
-                        >
-                            <span>全部候选</span>
-                            <span className="bg-slate-100 text-slate-500 text-xs px-1.5 rounded-full">{groupedData['All']?.length || 0}</span>
-                        </div>
-                        
-                        <div className="border-t border-slate-100 my-2"></div>
-                        
-                        {groupKeys.map(key => (
-                            <div 
-                                key={key}
-                                onClick={() => setSelectedGroup(key)}
-                                className={`px-3 py-2 rounded-lg cursor-pointer flex justify-between items-center text-sm transition-colors ${selectedGroup === key ? 'bg-purple-50 text-purple-700 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}
-                            >
-                                <div className="flex items-center gap-2 truncate">
-                                    {viewMode === 'source' ? <Database size={14} className="text-blue-400"/> : <Folder size={14} className="text-orange-400"/>}
-                                    <span className="truncate">{key}</span>
-                                </div>
-                                <span className="bg-slate-100 text-slate-500 text-xs px-1.5 rounded-full">{groupedData[key]?.length}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Right Content: Candidate Cards */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-                    <div className="grid grid-cols-1 gap-4">
-                        {filteredCandidates.map((cand: any) => (
-                            <div key={cand.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-4 transition-all hover:shadow-md animate-fade-in">
-                                <div className="flex flex-col md:flex-row gap-6">
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-3 mb-2">
-                                            <h3 className="text-lg font-bold text-slate-800">{cand.suggestedName}</h3>
-                                            <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-bold rounded-full">{Math.round(cand.confidence * 100)}% Match</span>
-                                        </div>
-                                        <p className="text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-lg border border-slate-100">{cand.reason}</p>
-                                        <div className="flex gap-2">
-                                            <button 
-                                                onClick={() => handleAdopt(cand)}
-                                                className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 shadow-sm shadow-blue-100 flex items-center gap-2"
-                                            >
-                                                <Plus size={14} /> 采纳并编辑
-                                            </button>
-                                            <button
-                                                onClick={() => toggleExpand(cand.id)}
-                                                className="px-3 py-2 border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 flex items-center gap-1"
-                                            >
-                                                {expandedId === cand.id ? '收起详情' : '查看详情'}
-                                                {expandedId === cand.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {expandedId === cand.id && (
-                                    <div className="mt-4 pt-4 border-t border-slate-100 animate-fade-in">
-                                        <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-                                            <Sparkles size={14} className="text-purple-500"/> AI 详细分析报告
-                                        </h4>
-                                        {/* Mock details for brevity in restored code */}
-                                        <p className="text-xs text-slate-500">详细字段映射和数据采样预览...</p>
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const BusinessGoalsView = ({ setActiveModule }: any) => (
-    <div className="space-y-6 animate-fade-in">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">业务梳理 (Business Goals)</h2>
-            <p className="text-sm text-slate-500 mt-1">定义核心业务目标与改革事项。</p>
-        </div>
-        <div className="grid grid-cols-1 gap-4">
-            {mockBusinessGoals.map(goal => (
-                <div key={goal.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
-                    <div className="flex justify-between items-start mb-3">
-                        <div>
-                            <span className={`px-2 py-1 text-xs rounded-full font-bold ${
-                                goal.priority === 'High' ? 'bg-red-100 text-red-600' :
-                                goal.priority === 'Medium' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'
-                            }`}>{goal.priority} Priority</span>
-                            <h3 className="text-lg font-bold text-slate-800 mt-2">{goal.title}</h3>
-                        </div>
-                        <span className="text-xs text-slate-400 font-mono">{goal.id}</span>
-                    </div>
-                    <p className="text-sm text-slate-600 mb-4">{goal.description}</p>
-                    <div className="flex items-center gap-4 text-xs text-slate-500 border-t border-slate-100 pt-3">
-                        <span className="flex items-center gap-1"><User size={12}/> {goal.owner}</span>
-                        <span className="flex items-center gap-1"><Clock size={12}/> {goal.lastUpdate}</span>
-                    </div>
-                </div>
-            ))}
-        </div>
-    </div>
-);
-
-const BusinessModelingView = ({ businessObjects, setBusinessObjects, selectedBO, setSelectedBO }: any) => {
-    const [editBO, setEditBO] = useState<any>(null);
-    const [isEditing, setIsEditing] = useState(false);
-
-    useEffect(() => {
-        if (selectedBO) {
-            setEditBO({ ...selectedBO });
-            setIsEditing(selectedBO.status === 'draft');
-        } else if (businessObjects.length > 0) {
-            setSelectedBO(businessObjects[0]);
-        }
-    }, [selectedBO, businessObjects]);
-
-    const handleSave = () => {
-        const newObjects = businessObjects.map((bo: any) => bo.id === editBO.id ? editBO : bo);
-        setBusinessObjects(newObjects);
-        setSelectedBO(editBO);
-        alert("业务对象已保存！");
-    };
-
-    if (!editBO) return <div className="p-6">Loading...</div>;
-
-    return (
-    <div className="space-y-6 h-full flex flex-col animate-fade-in">
-        <div className="flex justify-between items-center shrink-0">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">业务对象建模 (Modeling)</h2>
-                <p className="text-sm text-slate-500 mt-1">管理核心业务实体及其属性定义。</p>
-            </div>
-            <button 
-                onClick={() => {
-                    const newBO = {
-                        id: `BO_${Date.now()}`,
-                        name: '新业务对象',
-                        code: 'biz_new',
-                        domain: '未分类',
-                        owner: '当前用户',
-                        status: 'draft',
-                        version: 'v0.1',
-                        description: '请输入描述...',
-                        fields: []
-                    };
-                    setBusinessObjects((prev: any) => [newBO, ...prev]);
-                    setSelectedBO(newBO);
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700"
-            >
-                <Plus size={16} /> 新建对象
-            </button>
-        </div>
-        <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex">
-            {/* Sidebar List */}
-            <div className="w-64 border-r border-slate-200 bg-slate-50 flex flex-col">
-                <div className="p-4 border-b border-slate-200">
-                    <input type="text" placeholder="搜索对象..." className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none" />
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                    {businessObjects.map((bo: any) => (
-                        <div 
-                            key={bo.id} 
-                            onClick={() => setSelectedBO(bo)}
-                            className={`p-3 border-b border-slate-100 cursor-pointer transition-colors ${selectedBO?.id === bo.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-white border-l-4 border-l-transparent'}`}
-                        >
-                            <div className="flex justify-between items-start">
-                                <div className="font-medium text-slate-700 truncate w-32">{bo.name}</div>
-                                {bo.status === 'draft' && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">Draft</span>}
-                            </div>
-                            <div className="text-xs text-slate-400 mt-1 truncate">{bo.code}</div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Main Content Area */}
-            <div className="flex-1 flex flex-col bg-white">
-                 <div className="h-14 border-b border-slate-200 flex items-center justify-between px-6 bg-slate-50/50">
-                     <div className="text-xs text-slate-500 flex gap-4">
-                         <span>Version: <b className="text-slate-700">{editBO.version}</b></span>
-                         <span>Status: <span className={`font-bold ${editBO.status === 'published' ? 'text-green-600' : 'text-orange-500'}`}>{editBO.status.toUpperCase()}</span></span>
-                     </div>
-                     <div className="flex gap-2">
-                         {isEditing ? (
-                             <button onClick={handleSave} className="px-3 py-1.5 border border-blue-200 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-50 flex items-center gap-1">
-                                 <Save size={14}/> 保存草稿
-                             </button>
-                         ) : (
-                             <button onClick={() => setIsEditing(true)} className="px-3 py-1.5 border border-slate-300 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-100 flex items-center gap-1">
-                                 <Edit size={14}/> 编辑定义
-                             </button>
-                         )}
-                     </div>
-                 </div>
-
-                 <div className="flex-1 overflow-y-auto p-8">
-                    <div className="mb-8 grid grid-cols-2 gap-6">
-                        <div className="col-span-2">
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">业务对象名称</label>
-                            {isEditing ? (
-                                <input 
-                                    value={editBO.name} 
-                                    onChange={(e) => setEditBO({...editBO, name: e.target.value})}
-                                    className="text-2xl font-bold text-slate-800 bg-slate-50 border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none rounded-lg px-2 py-1 w-full -ml-2"
-                                />
-                            ) : (
-                                <h1 className="text-2xl font-bold text-slate-800">{editBO.name}</h1>
-                            )}
-                        </div>
-                        <div className="col-span-2">
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">描述</label>
-                            <p className="text-sm text-slate-600 leading-relaxed">{editBO.description}</p>
-                        </div>
-                    </div>
-
-                    {/* Fields Table */}
-                    <div>
-                        <div className="flex justify-between items-end mb-3">
-                            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">属性定义 (Fields)</h3>
-                        </div>
-                        <div className="border border-slate-200 rounded-lg overflow-hidden">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-500">
-                                    <tr>
-                                        <th className="px-4 py-2 font-medium">名称</th>
-                                        <th className="px-4 py-2 font-medium">编码</th>
-                                        <th className="px-4 py-2 font-medium">类型</th>
-                                        <th className="px-4 py-2 font-medium">描述</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {editBO.fields.map((f: any, idx: number) => (
-                                        <tr key={idx} className="group hover:bg-slate-50">
-                                            <td className="px-4 py-2"><span className="font-medium">{f.name}</span></td>
-                                            <td className="px-4 py-2 font-mono text-slate-600">{f.code}</td>
-                                            <td className="px-4 py-2 text-blue-600">{f.type}</td>
-                                            <td className="px-4 py-2 text-slate-500">{f.desc}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                 </div>
-            </div>
-        </div>
-    </div>
-    );
-};
-
-const ScenarioOrchestrationView = ({ businessObjects }: any) => (
-    <div className="space-y-6 animate-fade-in">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">场景编排 (Scenarios)</h2>
-            <p className="text-sm text-slate-500 mt-1">定义业务流程与对象交互逻辑。</p>
-        </div>
-        <div className="space-y-4">
-             {mockScenarios.map(sc => (
-                 <div key={sc.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                      <div className="flex justify-between items-start mb-4">
-                          <div>
-                              <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
-                                  <Layers size={18} className="text-indigo-500"/> {sc.name}
-                              </h3>
-                              <p className="text-sm text-slate-500 mt-1">{sc.description}</p>
-                          </div>
-                      </div>
-                      <div className="flex items-center gap-2 overflow-x-auto pb-2">
-                          {sc.nodes.map((node, idx) => (
-                              <React.Fragment key={node.id}>
-                                  <div className={`px-4 py-2 rounded-lg border text-sm flex items-center gap-2 whitespace-nowrap ${
-                                      node.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
-                                      node.status === 'process' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-500'
-                                  }`}>
-                                      {node.label}
-                                  </div>
-                                  {idx < sc.nodes.length - 1 && (
-                                      <ArrowRight size={14} className="text-slate-300 shrink-0"/>
-                                  )}
-                              </React.Fragment>
-                          ))}
-                      </div>
-                 </div>
-             ))}
-        </div>
-    </div>
-);
-
-const DataSourceManagementView = ({ dataSources, setDataSources }: any) => (
-    <div className="space-y-6 animate-fade-in">
-         <div className="flex justify-between items-center">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">数据源管理 (Connect)</h2>
-                <p className="text-sm text-slate-500 mt-1">配置物理数据库连接。</p>
-            </div>
-            <button className="px-4 py-2 bg-emerald-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-emerald-700">
-                <Plus size={16} /> 新增数据源
-            </button>
-        </div>
-        <div className="grid grid-cols-1 gap-4">
-            {dataSources.map((ds: any) => (
-                <div key={ds.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center gap-6">
-                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 shrink-0">
-                        <Database size={24}/>
-                    </div>
-                    <div className="flex-1 w-full text-center md:text-left">
-                        <h3 className="font-bold text-slate-800 text-lg">{ds.name}</h3>
-                        <div className="text-xs text-slate-500 font-mono mt-1">{ds.type} • {ds.host}:{ds.port} • {ds.dbName}</div>
-                        <div className="flex items-center gap-2 mt-2 justify-center md:justify-start">
-                             <div className={`w-2 h-2 rounded-full ${ds.status === 'connected' ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
-                             <span className="text-xs text-slate-600 capitalize">{ds.status}</span>
-                        </div>
-                    </div>
-                </div>
-            ))}
-        </div>
-    </div>
-);
-
-const AssetScanningView = ({ setActiveModule, candidates, scanAssets }: any) => (
-    <div className="space-y-6 animate-fade-in">
-        <div className="flex justify-between items-center">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">资产扫描 (Discovery)</h2>
-                <p className="text-sm text-slate-500 mt-1">自动扫描物理数据源，发现技术元数据。</p>
-            </div>
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700">
-                <RefreshCw size={16} /> 立即扫描
-            </button>
-        </div>
-        
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-             <table className="w-full text-sm text-left">
-                 <thead className="bg-slate-50 text-slate-500 font-medium">
-                     <tr>
-                         <th className="px-6 py-3">物理表名</th>
-                         <th className="px-6 py-3">注释</th>
-                         <th className="px-6 py-3">数据行数</th>
-                         <th className="px-6 py-3">更新时间</th>
-                         <th className="px-6 py-3">状态</th>
-                     </tr>
-                 </thead>
-                 <tbody className="divide-y divide-slate-100">
-                     {scanAssets.map((asset: any) => (
-                         <tr key={asset.id} className="hover:bg-slate-50 transition-colors">
-                             <td className="px-6 py-4 font-mono font-medium text-slate-700">{asset.name}</td>
-                             <td className="px-6 py-4 text-slate-500">{asset.comment || '-'}</td>
-                             <td className="px-6 py-4 text-slate-600">{asset.rows}</td>
-                             <td className="px-6 py-4 text-slate-400 text-xs">{asset.updateTime}</td>
-                             <td className="px-6 py-4">
-                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                                     asset.status === 'new' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
-                                 }`}>
-                                     {asset.status.toUpperCase()}
-                                 </span>
-                             </td>
-                         </tr>
-                     ))}
-                 </tbody>
-             </table>
-        </div>
-    </div>
-);
-
-const MappingStudioView = ({ selectedBO }: any) => (
-    <div className="space-y-6 animate-fade-in">
-        <div className="flex justify-between items-center">
-             <div>
-                <h2 className="text-2xl font-bold text-slate-800">映射工作台 (Mapping)</h2>
-                <p className="text-sm text-slate-500 mt-1">定义业务对象属性与物理表字段的映射关系。</p>
-            </div>
-            <div className="flex gap-2">
-                 <span className="text-sm text-slate-500 self-center">当前对象: <b className="text-slate-800">{selectedBO?.name || '未选择'}</b></span>
-            </div>
-        </div>
-
-        <div className="flex gap-8 items-start">
-             {/* Source: Business Object */}
-             <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm p-5">
-                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Box size={18}/> 业务对象 (Logical)</h3>
-                 <div className="space-y-2">
-                     {selectedBO?.fields?.map((f: any) => (
-                         <div key={f.id} className="p-3 border border-slate-200 rounded-lg bg-slate-50 flex justify-between items-center">
-                             <div>
-                                 <div className="font-bold text-sm text-slate-700">{f.name}</div>
-                                 <div className="text-xs text-slate-400 font-mono">{f.code} ({f.type})</div>
-                             </div>
-                             <div className="w-3 h-3 rounded-full bg-blue-400"></div>
-                         </div>
-                     ))}
-                     {(!selectedBO?.fields || selectedBO.fields.length === 0) && <div className="text-center text-slate-400 py-4 text-sm">无属性定义</div>}
-                 </div>
-             </div>
-             
-             {/* Center: Mapping Lines */}
-             <div className="w-16 flex flex-col items-center justify-center pt-20 gap-4 opacity-50">
-                 <ArrowRight size={24} className="text-slate-400"/>
-                 <GitMerge size={24} className="text-purple-400"/>
-                 <ArrowRight size={24} className="text-slate-400"/>
-             </div>
-
-             {/* Target: Physical Table */}
-             <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm p-5">
-                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Database size={18}/> 物理表 (Physical)</h3>
-                 {selectedBO?.sourceTables?.[0] ? (
-                      <div className="space-y-2">
-                         {mockPhysicalTables[0].fields.map((col, idx) => (
-                             <div key={idx} className="p-3 border border-slate-200 rounded-lg bg-slate-50 flex justify-between items-center">
-                                 <div className="w-3 h-3 rounded-full bg-emerald-400"></div>
-                                 <div className="text-right">
-                                     <div className="font-bold text-sm text-slate-700">{col.name}</div>
-                                     <div className="text-xs text-slate-400 font-mono">{col.type}</div>
-                                 </div>
-                             </div>
-                         ))}
-                      </div>
-                 ) : (
-                     <div className="text-center text-slate-400 py-10 border-2 border-dashed border-slate-200 rounded-lg">
-                         未绑定物理源表
-                     </div>
-                 )}
-             </div>
-        </div>
-    </div>
-);
-
-const ConflictDetectionView = ({ setActiveModule }: any) => (
-    <div className="space-y-6 animate-fade-in">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">冲突检测 (Governance)</h2>
-            <p className="text-sm text-slate-500 mt-1">检测业务定义与物理实现之间的差异与冲突。</p>
-        </div>
-        <div className="grid grid-cols-1 gap-4">
-             {mockConflicts.map(cf => (
-                 <div key={cf.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex gap-4 hover:shadow-md transition-all">
-                     <div className={`mt-1 ${cf.severity === 'High' ? 'text-red-500' : 'text-blue-500'}`}>
-                         <AlertTriangle size={24} />
-                     </div>
-                     <div className="flex-1">
-                         <div className="flex justify-between items-start">
-                             <h3 className="font-bold text-slate-800 text-lg">{cf.title}</h3>
-                             <span className={`px-2 py-0.5 rounded text-xs font-bold ${cf.severity === 'High' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{cf.severity}</span>
-                         </div>
-                         <p className="text-sm text-slate-600 mt-1 mb-3">{cf.desc}</p>
-                     </div>
-                     <div className="flex flex-col gap-2 justify-center">
-                         <button onClick={() => setActiveModule('mapping')} className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 whitespace-nowrap">去修复</button>
-                     </div>
-                 </div>
-             ))}
-        </div>
-    </div>
-);
-
-const ApiGatewayView = () => (
-    <div className="space-y-6 animate-fade-in">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">API 服务网关 (Gateway)</h2>
-            <p className="text-sm text-slate-500 mt-1">管理基于语义模型自动生成的 API 服务。</p>
-        </div>
-        <div className="grid grid-cols-1 gap-4">
-             {mockApiServices.map(api => (
-                 <div key={api.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-6">
-                     <div className={`px-3 py-1.5 rounded-lg text-sm font-bold font-mono ${
-                         api.method === 'GET' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
-                     }`}>{api.method}</div>
-                     <div className="flex-1">
-                         <div className="font-bold text-slate-800">{api.name}</div>
-                         <div className="text-xs text-slate-500 font-mono mt-1">{api.path}</div>
-                     </div>
-                     <div className="flex items-center gap-8 text-sm">
-                         <div className="text-center">
-                             <div className="text-slate-400 text-xs">QPS</div>
-                             <div className="font-bold text-slate-700">{api.qps}</div>
-                         </div>
-                         <div className={`px-2 py-1 rounded text-xs font-bold ${api.status === 'Online' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
-                             {api.status}
-                         </div>
-                     </div>
-                 </div>
-             ))}
-        </div>
-    </div>
-);
-
-const CacheStrategyView = () => (
-    <div className="space-y-6 animate-fade-in">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">缓存策略配置 (Caching)</h2>
-            <p className="text-sm text-slate-500 mt-1">配置语义层数据的缓存加速策略。</p>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             <div className="space-y-4">
-                 <h3 className="font-bold text-slate-700 flex items-center gap-2"><Settings size={18}/> 策略定义</h3>
-                 {mockCachePolicies.map(cp => (
-                     <div key={cp.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                         <div className="flex justify-between items-center mb-2">
-                             <div className="font-bold text-slate-700">{cp.name}</div>
-                             <div className={`w-2 h-2 rounded-full ${cp.status === 'Active' ? 'bg-green-500' : 'bg-slate-300'}`}></div>
-                         </div>
-                         <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-                             <div>Target: <span className="text-slate-700">{cp.target}</span></div>
-                             <div>Type: <span className="text-slate-700">{cp.type}</span></div>
-                         </div>
-                     </div>
-                 ))}
-             </div>
-        </div>
-    </div>
-);
-
-const DataLineageView = () => (
-    <div className="space-y-6 animate-fade-in h-full flex flex-col">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">全链路血缘 (Lineage)</h2>
-            <p className="text-sm text-slate-500 mt-1">可视化数据从物理源到 API 服务的流转过程。</p>
-        </div>
-        
-        <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm p-8 flex items-center justify-center overflow-auto relative">
-            <svg width="800" height="400" viewBox="0 0 800 400" className="w-full h-full max-w-4xl">
-                 <defs>
-                     <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                         <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
-                     </marker>
-                 </defs>
-                 <path d="M 150 200 L 300 200" stroke="#cbd5e1" strokeWidth="2" markerEnd="url(#arrowhead)" />
-                 <path d="M 400 200 L 550 150" stroke="#cbd5e1" strokeWidth="2" markerEnd="url(#arrowhead)" />
-                 <path d="M 400 200 L 550 250" stroke="#cbd5e1" strokeWidth="2" markerEnd="url(#arrowhead)" />
-                 <g transform="translate(50, 170)">
-                     <rect x="0" y="0" width="100" height="60" rx="6" fill="#ecfdf5" stroke="#10b981" strokeWidth="2"/>
-                     <text x="50" y="35" textAnchor="middle" className="text-xs font-bold fill-emerald-800">MySQL 源</text>
-                 </g>
-                 <g transform="translate(300, 170)">
-                     <rect x="0" y="0" width="100" height="60" rx="6" fill="#eff6ff" stroke="#3b82f6" strokeWidth="2"/>
-                     <text x="50" y="35" textAnchor="middle" className="text-xs font-bold fill-blue-800">物理表</text>
-                 </g>
-                 <g transform="translate(550, 120)">
-                     <rect x="0" y="0" width="100" height="60" rx="6" fill="#f5f3ff" stroke="#8b5cf6" strokeWidth="2"/>
-                     <text x="50" y="35" textAnchor="middle" className="text-xs font-bold fill-purple-800">业务对象</text>
-                 </g>
-            </svg>
-        </div>
-    </div>
-);
-
 // --- 视图: 数据语义理解 (BU-03) ---
 const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBusinessObjects, dataSources, scanAssets, setScanAssets }: any) => {
     const [viewMode, setViewMode] = useState<'source' | 'cluster'>('source');
     const [selectedNode, setSelectedNode] = useState<string | null>(null); // 'DS_ID' or 'ClusterName' or 'Type' or null (for all)
     const [expandedTableId, setExpandedTableId] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState("");
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [isBatchAnalyzing, setIsBatchAnalyzing] = useState(false);
     
     // Helper to get cluster name
     const getSimpleClusterName = (tableName: string) => {
@@ -1861,11 +925,91 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
         return filtered;
     }, [selectedNode, viewMode, scanAssets, dataSources, searchTerm]);
 
+    // Selection Logic
+    const toggleSelection = (id: string) => {
+        const newSet = new Set(selectedIds);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        setSelectedIds(newSet);
+    };
+
+    const toggleAll = () => {
+        if (selectedIds.size === tableList.length && tableList.length > 0) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(tableList.map((t: any) => t.id)));
+        }
+    };
+
     // AI Semantic Logic (Embedded in Table Row)
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [editMode, setEditMode] = useState(false);
     const [editableResult, setEditableResult] = useState<any>(null);
     const [aiVisibleTableId, setAiVisibleTableId] = useState<string | null>(null); // Controls collapse of AI section
+
+    const runBatchAnalysis = async () => {
+        if (selectedIds.size === 0) return;
+        setIsBatchAnalyzing(true);
+        
+        // Filter tables that need analysis (selected)
+        const targets = scanAssets.filter((t: any) => selectedIds.has(t.id));
+        
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        
+        // Deep copy assets to modify locally then update state
+        let updatedAssets = [...scanAssets];
+
+        for (const table of targets) {
+             // Optional: Skip if already enriched, or allow re-analysis. Let's allow re-analysis but log it.
+             try {
+                const prompt = `
+                作为一个资深数据架构师，请分析以下数据库物理表的语义，将其转化为业务更容易理解的描述。
+                
+                表名: ${table.name}
+                原始注释: ${table.comment}
+                字段列表:
+                ${table.columns.map((c: any) => `- ${c.name} (${c.type}): ${c.comment}`).join('\n')}
+                
+                请输出 JSON 格式，包含以下字段:
+                - businessName: 建议的中文业务名称
+                - description: 详细的业务含义描述 (50字左右)
+                - scenarios: 适用的业务场景列表 (数组)
+                - tags: 业务标签 (数组)
+                - coreFields: 核心业务字段说明 (数组)。对象包含:
+                   - field: 字段名
+                   - reason: 识别原因
+                   - semanticType: 枚举值 ["PK", "EventTime", "Status", "Measure", "Dimension"]。PK=唯一标识/主键, EventTime=关键业务发生时间。
+                - clusterSuggestion: 基于表名和内容的建议业务聚类名称 (例如: "出生一件事", "疫苗管理", "基础资源")
+                `;
+
+                const response = await ai.models.generateContent({
+                    model: 'gemini-3-flash-preview',
+                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                    config: { responseMimeType: 'application/json' }
+                });
+                
+                const result = JSON.parse(response.text as string);
+                
+                // Update local array
+                const index = updatedAssets.findIndex(a => a.id === table.id);
+                if (index !== -1) {
+                    updatedAssets[index] = {
+                        ...updatedAssets[index],
+                        semanticProfile: result,
+                        isSemanticEnriched: true
+                    };
+                }
+                // Update state incrementally to show progress visual (optional, but good UX)
+                setScanAssets([...updatedAssets]);
+             } catch (e) {
+                 console.error("Batch error for " + table.name, e);
+             }
+        }
+        
+        setIsBatchAnalyzing(false);
+        setSelectedIds(new Set()); // Clear selection after done
+        alert(`批量分析完成！已处理 ${targets.length} 张表。`);
+    };
 
     const handleAnalyze = async (table: any) => {
         setIsAnalyzing(true);
@@ -1886,9 +1030,9 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
             - scenarios: 适用的业务场景列表 (数组)
             - tags: 业务标签 (数组)
             - coreFields: 核心业务字段说明 (数组)。对象包含:
-               - field: 字段名
-               - reason: 识别原因
-               - semanticType: 枚举值 ["PK", "EventTime", "Status", "Measure", "Dimension"]。PK=唯一标识/主键, EventTime=关键业务发生时间。
+                   - field: 字段名
+                   - reason: 识别原因
+                   - semanticType: 枚举值 ["PK", "EventTime", "Status", "Measure", "Dimension"]。PK=唯一标识/主键, EventTime=关键业务发生时间。
             - clusterSuggestion: 基于表名和内容的建议业务聚类名称 (例如: "出生一件事", "疫苗管理", "基础资源")
             `;
 
@@ -1943,17 +1087,29 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
     }
 
     return (
-        <div className="space-y-6 h-full flex flex-col">
-            <div className="flex justify-between items-center shrink-0">
+        <div className="space-y-4 h-full flex flex-col">
+            <div className="flex justify-between items-end shrink-0 px-1">
                <div>
-                 <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                    <BrainCircuit className="text-pink-500" /> 逻辑视图
+                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <BrainCircuit className="text-pink-500" size={24} /> 逻辑视图
                  </h2>
-                 <p className="text-sm text-slate-500 mt-1">深度解析物理资产的业务含义，建立物理到逻辑的映射。</p>
+                 <p className="text-xs text-slate-500 mt-1 ml-8">深度解析物理资产的业务含义，建立物理到逻辑的映射。</p>
                </div>
                <div className="flex gap-4">
-                  <StatCard label="总表数" value={scanAssets.length} trend="Total" icon={Database} color="blue" />
-                  <StatCard label="已语义化" value={scanAssets.filter((a: any) => a.isSemanticEnriched).length} trend="AI Ready" icon={Sparkles} color="purple" />
+                  <div className="bg-white border border-blue-100 rounded-lg px-4 py-2 flex items-center gap-3 shadow-sm">
+                      <div className="p-1.5 bg-blue-50 text-blue-600 rounded-md"><Database size={16}/></div>
+                      <div>
+                          <div className="text-[10px] text-slate-400 uppercase font-bold">总表数</div>
+                          <div className="text-lg font-bold text-slate-700 leading-none">{scanAssets.length}</div>
+                      </div>
+                  </div>
+                  <div className="bg-white border border-purple-100 rounded-lg px-4 py-2 flex items-center gap-3 shadow-sm">
+                      <div className="p-1.5 bg-purple-50 text-purple-600 rounded-md"><Sparkles size={16}/></div>
+                      <div>
+                          <div className="text-[10px] text-slate-400 uppercase font-bold">已语义化</div>
+                          <div className="text-lg font-bold text-slate-700 leading-none">{scanAssets.filter((a: any) => a.isSemanticEnriched).length}</div>
+                      </div>
+                  </div>
                </div>
             </div>
 
@@ -2036,9 +1192,33 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
 
                 {/* Right: Table List & Details */}
                 <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
-                    <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
-                        <div className="text-sm text-slate-500">
-                            显示 <b>{tableList.length}</b> 张表 {selectedNode ? `(筛选: ${viewMode === 'source' ? dataSources.find((d:any)=>d.id===selectedNode)?.name || selectedNode : selectedNode})` : ''}
+                    <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center h-16">
+                        <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2 pl-2">
+                                <input 
+                                    type="checkbox" 
+                                    className="w-4 h-4 rounded border-slate-300 text-pink-600 focus:ring-pink-500 cursor-pointer"
+                                    checked={selectedIds.size === tableList.length && tableList.length > 0}
+                                    onChange={toggleAll}
+                                />
+                                <span className="text-sm text-slate-500 font-medium">全选</span>
+                            </div>
+                            <div className="h-4 w-px bg-slate-300 mx-2"></div>
+                            <div className="text-sm text-slate-500">
+                                显示 <b>{tableList.length}</b> 张表 {selectedNode ? `(筛选: ${viewMode === 'source' ? dataSources.find((d:any)=>d.id===selectedNode)?.name || selectedNode : selectedNode})` : ''}
+                            </div>
+                        </div>
+                        <div>
+                            {selectedIds.size > 0 && (
+                                <button 
+                                    onClick={runBatchAnalysis}
+                                    disabled={isBatchAnalyzing}
+                                    className={`px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white text-xs font-bold rounded-lg shadow-sm hover:shadow-purple-200 transition-all flex items-center gap-2 ${isBatchAnalyzing ? 'opacity-70 cursor-not-allowed' : 'hover:scale-105'}`}
+                                >
+                                    {isBatchAnalyzing ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                    {isBatchAnalyzing ? `正在批量分析...` : `批量 AI 语义解析 (${selectedIds.size})`}
+                                </button>
+                            )}
                         </div>
                     </div>
                     
@@ -2048,14 +1228,24 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                             const dataSource = dataSources.find((ds: any) => ds.id === table.sourceId);
                             const semantic = editableResult && isExpanded && editMode ? editableResult : table.semanticProfile; // Use editable if in editing mode
                             const isAiVisible = aiVisibleTableId === table.id;
+                            const isSelected = selectedIds.has(table.id);
 
                             return (
                                 <div key={table.id} className={`border rounded-xl transition-all ${isExpanded ? 'border-pink-200 shadow-md bg-white' : 'border-slate-200 hover:shadow-sm bg-white'}`}>
                                     {/* Table Header Row (Flexbox) */}
                                     <div 
-                                        className="p-4 flex items-center gap-4 cursor-pointer"
+                                        className={`p-4 flex items-center gap-4 cursor-pointer transition-colors ${isSelected ? 'bg-pink-50/30' : ''}`}
                                         onClick={() => setExpandedTableId(isExpanded ? null : table.id)}
                                     >
+                                        <div onClick={(e) => e.stopPropagation()} className="flex items-center">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={isSelected} 
+                                                onChange={() => toggleSelection(table.id)}
+                                                className="w-4 h-4 rounded border-slate-300 text-pink-600 focus:ring-pink-500 cursor-pointer"
+                                            />
+                                        </div>
+
                                         <div className={`p-2 rounded-lg shrink-0 ${isExpanded ? 'bg-pink-100 text-pink-600' : 'bg-slate-100 text-slate-500'}`}>
                                             <Table size={20} />
                                         </div>
@@ -2241,110 +1431,92 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
     );
 };
 
+const PlaceholderView = ({ title }: { title: string }) => (
+    <div className="h-full flex flex-col items-center justify-center p-8">
+        <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-6 text-slate-400">
+            <Hammer size={40} />
+        </div>
+        <h2 className="text-2xl font-bold text-slate-700 mb-2">{title}</h2>
+        <p className="text-slate-500 max-w-md text-center">
+            The {title} module is currently under development. Please proceed to the <span className="font-bold text-slate-700">Logic View (BU-03)</span> for the implemented demo features.
+        </p>
+    </div>
+);
+
 const SemanticLayerApp = () => {
-    const [activeModule, setActiveModule] = useState('dashboard');
-    const [isCollapsed, setIsCollapsed] = useState(false);
+    const [activeModule, setActiveModule] = useState('bu_semantics'); // Default to the implemented view
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [showAssistant, setShowAssistant] = useState(false);
+    
+    // Global State
+    const [businessObjects, setBusinessObjects] = useState(mockBusinessObjects);
+    const [dataSources, setDataSources] = useState(mockDataSources);
+    const [scanAssets, setScanAssets] = useState(mockScanAssets);
 
-    // State for data
-    const [businessObjects, setBusinessObjects] = useState<any[]>(mockBusinessObjects);
-    const [dataSources, setDataSources] = useState<any[]>(mockDataSources);
-    const [scanAssets, setScanAssets] = useState<any[]>(mockScanAssets);
-    const [candidates, setCandidates] = useState<any[]>(mockAICandidates);
-    const [selectedBO, setSelectedBO] = useState<any>(null);
-
-    // Placeholder for context data passed to AI
     const contextData = {
         businessObjects,
         dataSources,
-        candidates
+        candidates: mockAICandidates,
+        scanAssets
+    };
+
+    const renderContent = () => {
+        switch (activeModule) {
+            case 'bu_semantics':
+                return <DataSemanticUnderstandingView 
+                    setActiveModule={setActiveModule}
+                    businessObjects={businessObjects}
+                    setBusinessObjects={setBusinessObjects}
+                    dataSources={dataSources}
+                    scanAssets={scanAssets}
+                    setScanAssets={setScanAssets}
+                />;
+            case 'dashboard': return <PlaceholderView title="Dashboard" />;
+            case 'td_goals': return <PlaceholderView title="Business Goals (TD-01)" />;
+            case 'td_modeling': return <PlaceholderView title="Business Modeling (TD-03)" />;
+            case 'td_scenario': return <PlaceholderView title="Scenario Orchestration (TD-04)" />;
+            case 'bu_connect': return <PlaceholderView title="Data Source Connect (BU-01)" />;
+            case 'bu_discovery': return <PlaceholderView title="Asset Discovery (BU-02)" />;
+            case 'bu_candidates': return <PlaceholderView title="Candidate Generation (BU-04)" />;
+            case 'mapping': return <PlaceholderView title="Mapping Workbench (SG-01)" />;
+            case 'governance': return <PlaceholderView title="Governance & Conflicts (SG-02)" />;
+            case 'catalog': return <PlaceholderView title="Data Catalog (SG-04)" />;
+            case 'lineage': return <PlaceholderView title="Data Lineage (SG-05)" />;
+            case 'ee_api': return <PlaceholderView title="API Gateway (EE-05)" />;
+            case 'ee_cache': return <PlaceholderView title="Cache Strategy (EE-06)" />;
+            default: return <PlaceholderView title="Module" />;
+        }
     };
 
     return (
-        <div className="flex h-screen bg-slate-50 w-full overflow-hidden font-sans text-slate-900">
-             <Sidebar 
+        <div className="flex h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
+            <Sidebar 
                 activeModule={activeModule} 
-                setActiveModule={setActiveModule}
-                isCollapsed={isCollapsed}
-                setIsCollapsed={setIsCollapsed}
+                setActiveModule={setActiveModule} 
+                isCollapsed={isSidebarCollapsed} 
+                setIsCollapsed={setIsSidebarCollapsed} 
             />
             
-            <div className="flex-1 flex flex-col min-w-0 h-full relative">
+            <div className="flex-1 flex flex-col min-w-0 bg-slate-50 relative transition-all duration-300">
                 <Header 
                     activeModule={activeModule} 
-                    showAssistant={showAssistant}
-                    setShowAssistant={setShowAssistant}
+                    showAssistant={showAssistant} 
+                    setShowAssistant={setShowAssistant} 
                 />
                 
-                <main className="flex-1 overflow-hidden p-6 relative">
-                    {activeModule === 'bu_semantics' ? (
-                        <DataSemanticUnderstandingView 
-                            setActiveModule={setActiveModule}
-                            businessObjects={businessObjects}
-                            setBusinessObjects={setBusinessObjects}
-                            dataSources={dataSources}
-                            scanAssets={scanAssets}
-                            setScanAssets={setScanAssets}
-                        />
-                    ) : activeModule === 'dashboard' ? (
-                        <DashboardView setActiveModule={setActiveModule} />
-                    ) : activeModule === 'td_goals' ? (
-                        <BusinessGoalsView setActiveModule={setActiveModule} />
-                    ) : activeModule === 'td_modeling' ? (
-                        <BusinessModelingView 
-                            businessObjects={businessObjects} 
-                            setBusinessObjects={setBusinessObjects}
-                            selectedBO={selectedBO}
-                            setSelectedBO={setSelectedBO}
-                        />
-                    ) : activeModule === 'td_scenario' ? (
-                        <ScenarioOrchestrationView businessObjects={businessObjects} />
-                    ) : activeModule === 'bu_connect' ? (
-                        <DataSourceManagementView dataSources={dataSources} setDataSources={setDataSources} />
-                    ) : activeModule === 'bu_discovery' ? (
-                        <AssetScanningView 
-                            setActiveModule={setActiveModule} 
-                            candidates={candidates} 
-                            scanAssets={scanAssets}
-                        />
-                    ) : activeModule === 'bu_candidates' ? (
-                        <CandidateGenerationView 
-                            candidates={candidates} 
-                            setCandidates={setCandidates} 
-                            setBusinessObjects={setBusinessObjects}
-                            setActiveModule={setActiveModule}
-                            setSelectedBO={setSelectedBO}
-                            dataSources={dataSources}
-                            scanAssets={scanAssets}
-                        />
-                    ) : activeModule === 'mapping' ? (
-                        <MappingStudioView selectedBO={selectedBO || businessObjects[0]} />
-                    ) : activeModule === 'governance' ? (
-                        <ConflictDetectionView setActiveModule={setActiveModule} />
-                    ) : activeModule === 'catalog' ? (
-                        <DataCatalogView />
-                    ) : activeModule === 'ee_api' ? (
-                        <ApiGatewayView />
-                    ) : activeModule === 'ee_cache' ? (
-                        <CacheStrategyView />
-                    ) : activeModule === 'lineage' ? (
-                        <DataLineageView />
-                    ) : (
-                         <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                            <Activity size={48} className="mb-4 opacity-20" />
-                            <h3 className="text-lg font-medium text-slate-600">Module: {activeModule}</h3>
-                            <p className="text-sm">This module view is currently under construction.</p>
-                        </div>
-                    )}
+                <main className="flex-1 overflow-hidden relative p-4">
+                    <div className="w-full h-full bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative flex flex-col">
+                         {renderContent()}
+                    </div>
                     
-                     {/* AI Assistant Overlay/Panel */}
-                    <div className={`absolute top-0 right-0 h-full shadow-2xl transition-transform duration-300 transform z-50 ${showAssistant ? 'translate-x-0' : 'translate-x-full'}`}>
-                        <AIAssistantPanel 
+                    {/* AI Assistant Floating Panel */}
+                    <div className={`absolute top-4 right-4 bottom-4 w-96 z-40 transform transition-transform duration-300 ${showAssistant ? 'translate-x-0' : 'translate-x-[120%]'}`}>
+                         <AIAssistantPanel 
                             visible={showAssistant} 
                             onClose={() => setShowAssistant(false)}
                             activeModule={activeModule}
                             contextData={contextData}
-                        />
+                         />
                     </div>
                 </main>
             </div>
