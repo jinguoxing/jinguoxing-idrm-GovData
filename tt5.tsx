@@ -547,8 +547,17 @@ const Sidebar = ({ activeModule, setActiveModule, isCollapsed, setIsCollapsed }:
             items: [
                 { id: 'mapping', label: '映射工作台 (SG-01)', icon: GitMerge },
                 { id: 'governance', label: '冲突检测 (SG-02)', icon: Shield },
+                { id: 'asset_center', label: '资产中心', icon: Database },
                 { id: 'catalog', label: '数据资产中心 (SG-04)', icon: BookIcon },
                 { id: 'lineage', label: '全链路血缘 (SG-05)', icon: GitBranch },
+            ]
+        },
+        {
+            title: '数据治理',
+            color: 'text-indigo-400',
+            items: [
+                { id: 'term_management', label: '术语管理', icon: Book },
+                { id: 'tag_management', label: '标签管理', icon: Tag },
             ]
         },
         {
@@ -827,11 +836,23 @@ const AIAssistantPanel = ({ visible, onClose, activeModule, contextData }: any) 
 // --- 视图: 数据语义理解 (BU-03) ---
 const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBusinessObjects, dataSources, scanAssets, setScanAssets }: any) => {
     const [viewMode, setViewMode] = useState<'source' | 'cluster'>('source');
-    const [selectedNode, setSelectedNode] = useState<string | null>(null); // 'DS_ID' or 'ClusterName' or 'Type' or null (for all)
+    const [selectedNode, setSelectedNode] = useState<string | null>(null);
     const [expandedTableId, setExpandedTableId] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [isBatchAnalyzing, setIsBatchAnalyzing] = useState(false);
+    const [filterState, setFilterState] = useState({
+        semanticStatus: 'all', // 'all' | 'enriched' | 'not_enriched'
+        sortBy: 'name', // 'name' | 'semantic' | 'rows' | 'updated'
+        sortOrder: 'asc' // 'asc' | 'desc'
+    });
+    const [selectedComparisonTables, setSelectedComparisonTables] = useState<Set<string>>(new Set());
+    const [showFieldSemantics, setShowFieldSemantics] = useState<Record<string, boolean>>({});
+    const [fieldSemanticEdit, setFieldSemanticEdit] = useState<Record<string, any>>({});
+    const [showComparisonPanel, setShowComparisonPanel] = useState(false);
+    const [showGenerationWizard, setShowGenerationWizard] = useState(false);
+    const [wizardTable, setWizardTable] = useState<any>(null);
+    const [wizardSemantic, setWizardSemantic] = useState<any>(null);
     
     // Helper to get cluster name
     const getSimpleClusterName = (tableName: string) => {
@@ -875,23 +896,20 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
         }
     }, [viewMode, dataSources, scanAssets]);
 
-    // Prepare Right List Data
+    // Prepare Right List Data with enhanced filtering and sorting
     const tableList = useMemo(() => {
-        let filtered = scanAssets;
+        let filtered = [...scanAssets];
+        
+        // Node filter
         if (selectedNode) {
             if (viewMode === 'source') {
-                // Check if selectedNode is a Type (root) or specific DS (node)
-                // Filter by Type
                 const validDsIdsByType = dataSources.filter((ds: any) => ds.type === selectedNode).map((ds: any) => ds.id);
-                
                 if (validDsIdsByType.length > 0) {
                      filtered = filtered.filter((t: any) => validDsIdsByType.includes(t.sourceId));
                 } else {
-                     // Filter by Source ID
                      filtered = filtered.filter((t: any) => t.sourceId === selectedNode);
                 }
             } else {
-                // Cluster mode
                 filtered = filtered.filter((t: any) => {
                     const cluster = t.semanticProfile?.clusterSuggestion || getSimpleClusterName(t.name);
                     return cluster === selectedNode;
@@ -899,14 +917,53 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
             }
         }
         
+        // Search filter
         if (searchTerm) {
             filtered = filtered.filter((t: any) => 
                 t.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                t.comment.toLowerCase().includes(searchTerm.toLowerCase())
+                (t.comment || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (t.semanticProfile?.businessName || '').toLowerCase().includes(searchTerm.toLowerCase())
             );
         }
+        
+        // Semantic status filter
+        if (filterState.semanticStatus === 'enriched') {
+            filtered = filtered.filter((t: any) => t.isSemanticEnriched);
+        } else if (filterState.semanticStatus === 'not_enriched') {
+            filtered = filtered.filter((t: any) => !t.isSemanticEnriched);
+        }
+        
+        // Sorting
+        filtered.sort((a: any, b: any) => {
+            let aVal: any, bVal: any;
+            switch (filterState.sortBy) {
+                case 'name':
+                    aVal = a.name.toLowerCase();
+                    bVal = b.name.toLowerCase();
+                    break;
+                case 'semantic':
+                    aVal = a.isSemanticEnriched ? 1 : 0;
+                    bVal = b.isSemanticEnriched ? 1 : 0;
+                    break;
+                case 'rows':
+                    aVal = parseInt(a.rows?.replace(/[^\d]/g, '') || '0');
+                    bVal = parseInt(b.rows?.replace(/[^\d]/g, '') || '0');
+                    break;
+                case 'updated':
+                    aVal = new Date(a.updateTime || 0).getTime();
+                    bVal = new Date(b.updateTime || 0).getTime();
+                    break;
+                default:
+                    return 0;
+            }
+            
+            if (aVal < bVal) return filterState.sortOrder === 'asc' ? -1 : 1;
+            if (aVal > bVal) return filterState.sortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
+        
         return filtered;
-    }, [selectedNode, viewMode, scanAssets, dataSources, searchTerm]);
+    }, [selectedNode, viewMode, scanAssets, dataSources, searchTerm, filterState]);
 
     // Selection Logic
     const toggleSelection = (id: string) => {
@@ -951,17 +1008,46 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
         for (const table of targets) {
              // Optional: Skip if already enriched, or allow re-analysis. Let's allow re-analysis but log it.
              try {
-                // 模拟AI分析结果
+                // 模拟AI分析结果（增强版）
                 const result = {
                     businessName: `${table.comment || table.name}（业务视图）`,
-                    description: `这是对表 ${table.name} 的模拟分析结果`,
-                    scenarios: ["场景1", "场景2"],
-                    tags: ["标签1", "标签2"],
-                    coreFields: [
-                        { field: "id", reason: "主键字段", semanticType: "PK" },
-                        { field: "create_time", reason: "创建时间", semanticType: "EventTime" }
-                    ],
-                    clusterSuggestion: "基础数据"
+                    description: `这是对表 ${table.name} 的模拟分析结果。根据表名和字段结构，AI 识别出这是一个${table.comment || '业务实体'}表，包含${table.columns.length}个字段。`,
+                    scenarios: table.name.includes('order') ? ["订单管理", "交易流程"] : 
+                               table.name.includes('user') ? ["用户管理", "账户服务"] : 
+                               ["业务场景1", "业务场景2"],
+                    tags: table.name.includes('dict') ? ["字典表", "基础数据"] : 
+                          table.name.includes('record') ? ["记录表", "明细数据"] : 
+                          ["业务标签1", "业务标签2"],
+                    coreFields: table.columns.slice(0, 3).map((col: any) => {
+                        let reason = "字段";
+                        let semanticType = "Field";
+                        if (col.name.toLowerCase().includes('id') && col.name.toLowerCase() !== 'id') {
+                            reason = "关联字段";
+                            semanticType = "FK";
+                        } else if (col.name.toLowerCase() === 'id' || col.name.toLowerCase().includes('_id')) {
+                            reason = "主键字段";
+                            semanticType = "PK";
+                        } else if (col.type.toLowerCase().includes('time') || col.type.toLowerCase().includes('date')) {
+                            reason = "时间字段";
+                            semanticType = "EventTime";
+                        }
+                        return { field: col.name, reason, semanticType };
+                    }),
+                    clusterSuggestion: getSimpleClusterName(table.name),
+                    confidence: 0.85 + Math.random() * 0.1, // 0.85-0.95
+                    riskLevel: Math.random() > 0.7 ? 'medium' : 'low',
+                    fieldSemantics: table.columns.map((col: any) => {
+                        let semanticRole = '属性';
+                        if (col.name.toLowerCase().includes('id')) semanticRole = '标识';
+                        if (col.type.toLowerCase().includes('time') || col.type.toLowerCase().includes('date')) semanticRole = '时间戳';
+                        if (col.name.toLowerCase().includes('status')) semanticRole = '状态';
+                        return {
+                            field: col.name,
+                            semanticRole,
+                            confidence: 0.75 + Math.random() * 0.2,
+                            source: 'AI'
+                        };
+                    })
                 };
                 
                 // Update local array
@@ -993,14 +1079,51 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
         setTimeout(() => {
             const mockResult = {
                 businessName: `${table.comment || table.name}（业务视图）`,
-                description: `这是对表 ${table.name} 的模拟AI分析结果。在实际环境中，这里会包含详细的语义分析。`,
-                scenarios: ["场景1", "场景2"],
-                tags: ["标签1", "标签2"],
-                coreFields: [
-                    { field: "id", reason: "主键字段", semanticType: "PK" },
-                    { field: "create_time", reason: "创建时间", semanticType: "EventTime" }
-                ],
-                clusterSuggestion: "基础数据"
+                description: `这是对表 ${table.name} 的模拟AI分析结果。在实际环境中，这里会包含详细的语义分析。根据表结构分析：\n1. 表名和注释反映了业务含义\n2. 字段命名遵循常见规范\n3. 数据类型和约束提供了语义线索`,
+                scenarios: table.name.includes('order') ? ["订单管理", "交易流程"] : 
+                           table.name.includes('user') ? ["用户管理", "账户服务"] : 
+                           ["业务场景1", "业务场景2"],
+                tags: table.name.includes('dict') ? ["字典表", "基础数据"] : 
+                      table.name.includes('record') ? ["记录表", "明细数据"] : 
+                      ["业务标签1", "业务标签2"],
+                coreFields: table.columns.slice(0, 3).map((col: any) => {
+                    let reason = "字段";
+                    let semanticType = "Field";
+                    if (col.name.toLowerCase().includes('id') && col.name.toLowerCase() !== 'id') {
+                        reason = "关联字段";
+                        semanticType = "FK";
+                    } else if (col.name.toLowerCase() === 'id' || (col.name.toLowerCase().endsWith('_id') && !col.name.toLowerCase().includes('user_id'))) {
+                        reason = "主键字段";
+                        semanticType = "PK";
+                    } else if (col.type.toLowerCase().includes('time') || col.type.toLowerCase().includes('date')) {
+                        reason = "时间字段";
+                        semanticType = "EventTime";
+                    }
+                    return { field: col.name, reason, semanticType };
+                }),
+                clusterSuggestion: getSimpleClusterName(table.name),
+                confidence: 0.85 + Math.random() * 0.1,
+                riskLevel: Math.random() > 0.7 ? 'medium' : 'low',
+                fieldSemantics: table.columns.map((col: any) => {
+                    let semanticRole = '属性';
+                    if (col.name.toLowerCase().includes('id')) semanticRole = '标识';
+                    if (col.type.toLowerCase().includes('time') || col.type.toLowerCase().includes('date')) semanticRole = '时间戳';
+                    if (col.name.toLowerCase().includes('status')) semanticRole = '状态';
+                    return {
+                        field: col.name,
+                        semanticRole,
+                        confidence: 0.75 + Math.random() * 0.2,
+                        source: 'AI'
+                    };
+                }),
+                reasoning: `基于以下线索进行语义分析：\n1. 表名 "${table.name}" 和注释 "${table.comment || '无'}" 提供了业务上下文\n2. 字段命名模式反映了数据模型设计规范\n3. 数据类型和约束暗示了字段的业务含义`,
+                relatedTables: scanAssets
+                    .filter((t: any) => t.id !== table.id && (
+                        t.name.toLowerCase().includes(table.name.toLowerCase().split('_')[0]) ||
+                        t.semanticProfile?.clusterSuggestion === getSimpleClusterName(table.name)
+                    ))
+                    .slice(0, 3)
+                    .map((t: any) => ({ id: t.id, name: t.name, relation: '同集群' }))
             };
             
             setEditableResult(mockResult);
@@ -1061,9 +1184,34 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                       <div className="p-1.5 bg-purple-50 text-purple-600 rounded-md"><Sparkles size={16}/></div>
                       <div>
                           <div className="text-[10px] text-slate-400 uppercase font-bold">已语义化</div>
-                          <div className="text-lg font-bold text-slate-700 leading-none">{scanAssets.filter((a: any) => a.isSemanticEnriched).length}</div>
+                          <div className="text-lg font-bold text-slate-700 leading-none">
+                              {scanAssets.filter((a: any) => a.isSemanticEnriched).length}
+                      </div>
+                          <div className="text-[10px] text-slate-400">
+                              {scanAssets.length > 0 ? Math.round(scanAssets.filter((a: any) => a.isSemanticEnriched).length / scanAssets.length * 100) : 0}%
+                  </div>
                       </div>
                   </div>
+                  <div className="bg-white border border-emerald-100 rounded-lg px-4 py-2 flex items-center gap-3 shadow-sm">
+                      <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-md"><Network size={16}/></div>
+                      <div>
+                          <div className="text-[10px] text-slate-400 uppercase font-bold">聚类数量</div>
+                          <div className="text-lg font-bold text-slate-700 leading-none">
+                              {new Set(scanAssets.map((a: any) => 
+                                  a.semanticProfile?.clusterSuggestion || getSimpleClusterName(a.name)
+                              )).size}
+                          </div>
+                      </div>
+                  </div>
+                  {selectedComparisonTables.size > 0 && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 flex items-center gap-3 shadow-sm">
+                          <div className="p-1.5 bg-blue-100 text-blue-600 rounded-md"><Layers size={16}/></div>
+                          <div>
+                              <div className="text-[10px] text-blue-600 uppercase font-bold">对比中</div>
+                              <div className="text-lg font-bold text-blue-700 leading-none">{selectedComparisonTables.size}</div>
+                          </div>
+                      </div>
+                  )}
                </div>
             </div>
 
@@ -1146,7 +1294,9 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
 
                 {/* Right: Table List & Details */}
                 <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
-                    <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center h-16">
+                    {/* Enhanced Header with Filters */}
+                    <div className="p-4 border-b border-slate-200 bg-slate-50/50">
+                        <div className="flex justify-between items-center mb-3">
                         <div className="flex items-center gap-3">
                             <div className="flex items-center gap-2 pl-2">
                                 <input 
@@ -1162,7 +1312,34 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                 显示 <b>{tableList.length}</b> 张表 {selectedNode ? `(筛选: ${viewMode === 'source' ? dataSources.find((d:any)=>d.id===selectedNode)?.name || selectedNode : selectedNode})` : ''}
                             </div>
                         </div>
-                        <div>
+                            <div className="flex items-center gap-2">
+                                {selectedComparisonTables.size > 0 && (
+                                    <button
+                                        onClick={() => {
+                                            const comparisonTables = scanAssets.filter((t: any) => selectedComparisonTables.has(t.id));
+                                            if (comparisonTables.length >= 2) {
+                                                // 显示对比面板
+                                                setShowComparisonPanel(true);
+                                            } else {
+                                                alert('请至少选择2张表进行对比');
+                                            }
+                                        }}
+                                        className="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-lg hover:bg-blue-200 flex items-center gap-1"
+                                    >
+                                        <Layers size={14} /> 对比 ({selectedComparisonTables.size})
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => setSelectedComparisonTables(new Set())}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                        selectedComparisonTables.size > 0 
+                                            ? 'bg-red-100 text-red-700 hover:bg-red-200' 
+                                            : 'opacity-50 cursor-not-allowed bg-slate-100 text-slate-400'
+                                    }`}
+                                    disabled={selectedComparisonTables.size === 0}
+                                >
+                                    清空对比
+                                </button>
                             {selectedIds.size > 0 && (
                                 <button 
                                     onClick={runBatchAnalysis}
@@ -1173,6 +1350,48 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                     {isBatchAnalyzing ? `正在批量分析...` : `批量 AI 语义解析 (${selectedIds.size})`}
                                 </button>
                             )}
+                                <button
+                                    onClick={() => setActiveModule('bu_identification')}
+                                    className="px-3 py-1.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-lg hover:bg-emerald-200 flex items-center gap-1"
+                                >
+                                    <FileCheck size={14} /> 识别结果确认
+                                </button>
+                            </div>
+                        </div>
+                        {/* Enhanced Filters */}
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs text-slate-600">语义化状态：</label>
+                                <select
+                                    value={filterState.semanticStatus}
+                                    onChange={(e) => setFilterState({...filterState, semanticStatus: e.target.value})}
+                                    className="border border-slate-300 rounded px-2 py-1 text-xs"
+                                >
+                                    <option value="all">全部</option>
+                                    <option value="enriched">已语义化</option>
+                                    <option value="not_enriched">未语义化</option>
+                                </select>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs text-slate-600">排序：</label>
+                                <select
+                                    value={filterState.sortBy}
+                                    onChange={(e) => setFilterState({...filterState, sortBy: e.target.value})}
+                                    className="border border-slate-300 rounded px-2 py-1 text-xs"
+                                >
+                                    <option value="name">表名</option>
+                                    <option value="semantic">语义化状态</option>
+                                    <option value="rows">数据量</option>
+                                    <option value="updated">更新时间</option>
+                                </select>
+                                <button
+                                    onClick={() => setFilterState({...filterState, sortOrder: filterState.sortOrder === 'asc' ? 'desc' : 'asc'})}
+                                    className="p-1 text-slate-500 hover:text-slate-700"
+                                    title={filterState.sortOrder === 'asc' ? '升序' : '降序'}
+                                >
+                                    {filterState.sortOrder === 'asc' ? '↑' : '↓'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                     
@@ -1191,13 +1410,38 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                         className={`p-4 flex items-center gap-4 cursor-pointer transition-colors ${isSelected ? 'bg-pink-50/30' : ''}`}
                                         onClick={() => setExpandedTableId(isExpanded ? null : table.id)}
                                     >
-                                        <div onClick={(e) => e.stopPropagation()} className="flex items-center">
+                                        <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-2">
                                             <input 
                                                 type="checkbox" 
                                                 checked={isSelected} 
                                                 onChange={() => toggleSelection(table.id)}
                                                 className="w-4 h-4 rounded border-slate-300 text-pink-600 focus:ring-pink-500 cursor-pointer"
+                                                title="批量分析"
                                             />
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const newSet = new Set(selectedComparisonTables);
+                                                    if (newSet.has(table.id)) {
+                                                        newSet.delete(table.id);
+                                                    } else {
+                                                        if (newSet.size >= 3) {
+                                                            alert('最多可同时对比3张表');
+                                                            return;
+                                                        }
+                                                        newSet.add(table.id);
+                                                    }
+                                                    setSelectedComparisonTables(newSet);
+                                                }}
+                                                className={`p-1 rounded transition-colors ${
+                                                    selectedComparisonTables.has(table.id)
+                                                        ? 'bg-blue-100 text-blue-600'
+                                                        : 'text-slate-400 hover:bg-slate-100'
+                                                }`}
+                                                title={selectedComparisonTables.has(table.id) ? '取消对比' : '加入对比（最多3张）'}
+                                            >
+                                                <Layers size={14} />
+                                            </button>
                                         </div>
 
                                         <div className={`p-2 rounded-lg shrink-0 ${isExpanded ? 'bg-pink-100 text-pink-600' : 'bg-slate-100 text-slate-500'}`}>
@@ -1226,8 +1470,13 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                             {table.updateTime}
                                         </div>
 
-                                        <div className="w-8 flex justify-end shrink-0">
-                                            {table.isSemanticEnriched && <BrainCircuit size={16} className="text-emerald-500 mr-2" title="已语义化" />}
+                                        <div className="w-8 flex justify-end shrink-0 gap-1">
+                                            {table.isSemanticEnriched && (
+                                                <BrainCircuit size={16} className="text-emerald-500" title="已语义化" />
+                                            )}
+                                            {selectedComparisonTables.has(table.id) && (
+                                                <Layers size={14} className="text-blue-500" title="已选中对比" />
+                                            )}
                                             <ChevronDown size={16} className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                                         </div>
                                     </div>
@@ -1236,11 +1485,31 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                     {isExpanded && (
                                         <div className="border-t border-slate-100 bg-slate-50/50 p-4 animate-fade-in">
                                             <div className="flex gap-6 flex-col lg:flex-row">
-                                                {/* 1. Physical Schema */}
+                                                {/* 1. Physical Schema with Field Semantics */}
                                                 <div className="flex-1 bg-white border border-slate-200 rounded-lg overflow-hidden flex flex-col h-[300px]">
                                                     <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 text-xs font-bold text-slate-500 uppercase flex justify-between items-center">
                                                         <span>物理字段 ({table.columns.length})</span>
+                                                        <div className="flex items-center gap-2">
+                                                            {table.semanticProfile && (
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setShowFieldSemantics({
+                                                                            ...showFieldSemantics,
+                                                                            [table.id]: !showFieldSemantics[table.id]
+                                                                        });
+                                                                    }}
+                                                                    className={`text-xs px-2 py-1 rounded transition-colors ${
+                                                                        showFieldSemantics[table.id]
+                                                                            ? 'bg-purple-100 text-purple-700'
+                                                                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                                    }`}
+                                                                >
+                                                                    {showFieldSemantics[table.id] ? '隐藏语义' : '显示语义'}
+                                                                </button>
+                                                            )}
                                                         <Code size={12}/>
+                                                        </div>
                                                     </div>
                                                     <div className="flex-1 overflow-y-auto custom-scrollbar">
                                                         <table className="w-full text-xs text-left">
@@ -1249,19 +1518,98 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                                                     <th className="px-4 py-2 bg-slate-50/90 backdrop-blur">Name</th>
                                                                     <th className="px-4 py-2 bg-slate-50/90 backdrop-blur">Type</th>
                                                                     <th className="px-4 py-2 bg-slate-50/90 backdrop-blur">Comment</th>
+                                                                    {showFieldSemantics[table.id] && (
+                                                                        <th className="px-4 py-2 bg-slate-50/90 backdrop-blur">语义角色</th>
+                                                                    )}
                                                                 </tr>
                                                             </thead>
                                                             <tbody className="divide-y divide-slate-100">
-                                                                {table.columns.map((col: any, idx: number) => (
+                                                                {table.columns.map((col: any, idx: number) => {
+                                                                    const fieldSemantic = table.semanticProfile?.fieldSemantics?.find((fs: any) => fs.field === col.name);
+                                                                    const isEditing = fieldSemanticEdit[`${table.id}_${col.name}`];
+                                                                    return (
                                                                     <tr key={idx} className="hover:bg-slate-50 group">
                                                                         <td className="px-4 py-2 font-mono text-slate-700 font-medium group-hover:text-blue-600 transition-colors">{col.name}</td>
                                                                         <td className="px-4 py-2 text-slate-400 flex items-center gap-1.5">
                                                                             {getFieldTypeIcon(col.type)}
                                                                             {col.type}
                                                                         </td>
-                                                                        <td className="px-4 py-2 text-slate-500 truncate max-w-[120px]" title={col.comment}>{col.comment}</td>
+                                                                            <td className="px-4 py-2 text-slate-500 truncate max-w-[120px]" title={col.comment}>{col.comment || '-'}</td>
+                                                                            {showFieldSemantics[table.id] && (
+                                                                                <td className="px-4 py-2">
+                                                                                    {isEditing ? (
+                                                                                        <input
+                                                                                            type="text"
+                                                                                            defaultValue={fieldSemantic?.semanticRole || ''}
+                                                                                            onBlur={(e) => {
+                                                                                                const newSemantics = {
+                                                                                                    ...fieldSemanticEdit,
+                                                                                                    [`${table.id}_${col.name}`]: false
+                                                                                                };
+                                                                                                if (e.target.value.trim()) {
+                                                                                                    // 保存字段语义
+                                                                                                    const updatedAssets = scanAssets.map((t: any) => {
+                                                                                                        if (t.id === table.id) {
+                                                                                                            const fieldSemantics = t.semanticProfile?.fieldSemantics || [];
+                                                                                                            const existingIndex = fieldSemantics.findIndex((fs: any) => fs.field === col.name);
+                                                                                                            const newFieldSemantic = {
+                                                                                                                field: col.name,
+                                                                                                                semanticRole: e.target.value.trim(),
+                                                                                                                confidence: 1.0,
+                                                                                                                source: 'manual'
+                                                                                                            };
+                                                                                                            if (existingIndex >= 0) {
+                                                                                                                fieldSemantics[existingIndex] = newFieldSemantic;
+                                                                                                            } else {
+                                                                                                                fieldSemantics.push(newFieldSemantic);
+                                                                                                            }
+                                                                                                            return {
+                                                                                                                ...t,
+                                                                                                                semanticProfile: {
+                                                                                                                    ...t.semanticProfile,
+                                                                                                                    fieldSemantics
+                                                                                                                }
+                                                                                                            };
+                                                                                                        }
+                                                                                                        return t;
+                                                                                                    });
+                                                                                                    setScanAssets(updatedAssets);
+                                                                                                }
+                                                                                                setFieldSemanticEdit(newSemantics);
+                                                                                            }}
+                                                                                            className="w-full px-2 py-1 text-xs border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                                                            placeholder="输入语义角色..."
+                                                                                            autoFocus
+                                                                                        />
+                                                                                    ) : (
+                                                                                        <div className="flex items-center gap-1 group/item">
+                                                                                            {fieldSemantic ? (
+                                                                                                <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded">
+                                                                                                    {fieldSemantic.semanticRole}
+                                                                                                </span>
+                                                                                            ) : (
+                                                                                                <span className="text-xs text-slate-400">-</span>
+                                                                                            )}
+                                                                                            <button
+                                                                                                onClick={(e) => {
+                                                                                                    e.stopPropagation();
+                                                                                                    setFieldSemanticEdit({
+                                                                                                        ...fieldSemanticEdit,
+                                                                                                        [`${table.id}_${col.name}`]: true
+                                                                                                    });
+                                                                                                }}
+                                                                                                className="opacity-0 group-hover/item:opacity-100 text-blue-500 hover:text-blue-700"
+                                                                                                title="编辑语义"
+                                                                                            >
+                                                                                                <Edit size={12} />
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    )}
+                                                                                </td>
+                                                                            )}
                                                                     </tr>
-                                                                ))}
+                                                                    );
+                                                                })}
                                                             </tbody>
                                                         </table>
                                                     </div>
@@ -1322,7 +1670,31 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                                                     </div>
 
                                                                     <div>
-                                                                        <div className="text-[10px] uppercase text-purple-400 font-bold tracking-wider mb-1">建议业务名称</div>
+                                                                        <div className="flex items-center justify-between mb-1">
+                                                                            <div className="text-[10px] uppercase text-purple-400 font-bold tracking-wider">建议业务名称</div>
+                                                                            {semantic.confidence && (
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <div className="flex items-center gap-1">
+                                                                                        <div className="w-16 bg-slate-200 rounded-full h-1.5">
+                                                                                            <div
+                                                                                                className="bg-purple-500 h-1.5 rounded-full"
+                                                                                                style={{ width: `${semantic.confidence * 100}%` }}
+                                                                                            ></div>
+                                                                                        </div>
+                                                                                        <span className="text-[10px] text-slate-500">
+                                                                                            {Math.round(semantic.confidence * 100)}%
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    {semantic.riskLevel && semantic.riskLevel !== 'low' && (
+                                                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                                                                            semantic.riskLevel === 'high' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                                                                                        }`}>
+                                                                                            {semantic.riskLevel === 'high' ? '高风险' : '中风险'}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
                                                                         {editMode ? (
                                                                             <input className="w-full border border-purple-200 rounded p-1 text-sm font-bold text-slate-800" value={editableResult.businessName} onChange={e => setEditableResult({...editableResult, businessName: e.target.value})} />
                                                                         ) : <div className="text-base font-bold text-slate-800">{semantic.businessName}</div>}
@@ -1332,8 +1704,79 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                                                         <div className="text-[10px] uppercase text-purple-400 font-bold tracking-wider mb-1">业务描述</div>
                                                                         {editMode ? (
                                                                             <textarea rows={2} className="w-full border border-purple-200 rounded p-1 text-xs" value={editableResult.description} onChange={e => setEditableResult({...editableResult, description: e.target.value})} />
-                                                                        ) : <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-2 rounded border border-slate-100">{semantic.description}</p>}
+                                                                        ) : <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-2 rounded border border-slate-100 whitespace-pre-line">{semantic.description}</p>}
                                                                     </div>
+                                                                    
+                                                                    {/* AI 推理过程 */}
+                                                                    {semantic.reasoning && !editMode && (
+                                                                        <div>
+                                                                            <div className="text-[10px] uppercase text-purple-400 font-bold tracking-wider mb-1">AI 推理过程</div>
+                                                                            <div className="p-2 bg-purple-50 rounded border border-purple-100 text-xs text-slate-700 whitespace-pre-line">
+                                                                                {semantic.reasoning}
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* 业务场景和标签 */}
+                                                                    {(semantic.scenarios || semantic.tags) && !editMode && (
+                                                                        <div className="space-y-2">
+                                                                            {semantic.scenarios && semantic.scenarios.length > 0 && (
+                                                                        <div>
+                                                                            <div className="text-[10px] uppercase text-purple-400 font-bold tracking-wider mb-1">适用场景</div>
+                                                                            <div className="flex flex-wrap gap-1">
+                                                                                {semantic.scenarios.map((scenario: string, idx: number) => (
+                                                                                    <span key={idx} className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded">
+                                                                                        {scenario}
+                                                                                    </span>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+                                                                            )}
+                                                                            {semantic.tags && semantic.tags.length > 0 && (
+                                                                        <div>
+                                                                            <div className="text-[10px] uppercase text-purple-400 font-bold tracking-wider mb-1">业务标签</div>
+                                                                            <div className="flex flex-wrap gap-1">
+                                                                                {semantic.tags.map((tag: string, idx: number) => (
+                                                                                    <span key={idx} className="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded">
+                                                                                        {tag}
+                                                                                    </span>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                    
+                                                                    {editMode && (editableResult.scenarios || editableResult.tags) && (
+                                                                        <div className="space-y-2">
+                                                                            <div>
+                                                                                <div className="text-[10px] uppercase text-purple-400 font-bold tracking-wider mb-1">适用场景</div>
+                                                                                <textarea 
+                                                                                    rows={1}
+                                                                                    className="w-full border border-purple-200 rounded p-1 text-xs"
+                                                                                    value={editableResult.scenarios?.join(', ') || ''}
+                                                                                    onChange={e => setEditableResult({
+                                                                                        ...editableResult, 
+                                                                                        scenarios: e.target.value.split(',').map(s => s.trim()).filter(s => s)
+                                                                                    })}
+                                                                                    placeholder="场景1, 场景2..."
+                                                                                />
+                                                                            </div>
+                                                                            <div>
+                                                                                <div className="text-[10px] uppercase text-purple-400 font-bold tracking-wider mb-1">业务标签</div>
+                                                                                <textarea 
+                                                                                    rows={1}
+                                                                                    className="w-full border border-purple-200 rounded p-1 text-xs"
+                                                                                    value={editableResult.tags?.join(', ') || ''}
+                                                                                    onChange={e => setEditableResult({
+                                                                                        ...editableResult, 
+                                                                                        tags: e.target.value.split(',').map(s => s.trim()).filter(s => s)
+                                                                                    })}
+                                                                                    placeholder="标签1, 标签2..."
+                                                                                />
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
 
                                                                     <div>
                                                                         <div className="text-[10px] uppercase text-purple-400 font-bold tracking-wider mb-1">核心字段识别</div>
@@ -1355,17 +1798,44 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                                                         </div>
                                                                     </div>
                                                                     
+                                                                    {/* 相关表推荐 */}
+                                                                    {semantic.relatedTables && semantic.relatedTables.length > 0 && !editMode && (
+                                                                        <div>
+                                                                            <div className="text-[10px] uppercase text-purple-400 font-bold tracking-wider mb-1">相关表推荐</div>
+                                                                            <div className="space-y-1">
+                                                                                {semantic.relatedTables.map((rt: any, idx: number) => (
+                                                                                    <div key={idx} className="flex items-center justify-between p-1.5 bg-slate-50 rounded border border-slate-200 text-xs">
+                                                                                        <span className="font-mono text-slate-700">{rt.name}</span>
+                                                                                        <span className="text-slate-500">{rt.relation}</span>
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                    
                                                                     {!editMode && (
+                                                                        <div className="flex gap-2">
                                                                         <button 
-                                                                            onClick={() => {
-                                                                                // Logic to create BO directly (simplified here)
-                                                                                alert("Generating BO from " + semantic.businessName);
-                                                                                setActiveModule('td_modeling');
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setShowGenerationWizard(true);
+                                                                                setWizardTable(table);
+                                                                                setWizardSemantic(semantic);
                                                                             }}
-                                                                            className="w-full py-2 bg-purple-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-purple-700 flex items-center justify-center gap-2 mt-2"
+                                                                                className="flex-1 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-purple-700 flex items-center justify-center gap-2"
                                                                         >
                                                                             <Box size={14}/> 生成业务对象
                                                                         </button>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setActiveModule('bu_identification');
+                                                                                }}
+                                                                                className="px-3 py-2 bg-emerald-600 text-white text-xs font-medium rounded-lg shadow-sm hover:bg-emerald-700 flex items-center gap-1"
+                                                                                title="进入识别结果确认"
+                                                                            >
+                                                                                <FileCheck size={14} />
+                                                                            </button>
+                                                                        </div>
                                                                     )}
                                                                 </div>
                                                             )}
@@ -1381,6 +1851,98 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                     </div>
                 </div>
             </div>
+            
+            {/* 表对比面板 */}
+            {showComparisonPanel && selectedComparisonTables.size >= 2 && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowComparisonPanel(false)}>
+                    <div className="bg-white rounded-xl shadow-2xl w-[90vw] h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <Layers className="text-blue-500" size={20} />
+                                表语义对比分析
+                            </h3>
+                            <button
+                                onClick={() => setShowComparisonPanel(false)}
+                                className="text-slate-400 hover:text-slate-600"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-auto p-6">
+                            <div className="grid grid-cols-3 gap-4">
+                                {Array.from(selectedComparisonTables).map((tableId) => {
+                                    const table = scanAssets.find((t: any) => t.id === tableId);
+                                    if (!table) return null;
+                                    return (
+                                        <div key={tableId} className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+                                            <div className="font-bold text-slate-800 mb-2">{table.name}</div>
+                                            <div className="text-xs text-slate-500 mb-3">{table.comment || '暂无注释'}</div>
+                                            {table.semanticProfile ? (
+                                                <div className="space-y-2">
+                                                    <div>
+                                                        <div className="text-xs text-slate-400 mb-1">业务名称</div>
+                                                        <div className="text-sm font-medium text-slate-700">{table.semanticProfile.businessName}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-xs text-slate-400 mb-1">置信度</div>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="flex-1 bg-slate-200 rounded-full h-2">
+                                                                <div
+                                                                    className="bg-purple-500 h-2 rounded-full"
+                                                                    style={{ width: `${(table.semanticProfile.confidence || 0) * 100}%` }}
+                                                                ></div>
+                                                            </div>
+                                                            <span className="text-xs text-slate-600">
+                                                                {Math.round((table.semanticProfile.confidence || 0) * 100)}%
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-xs text-slate-400 mb-1">聚类</div>
+                                                        <div className="text-xs text-slate-600">{table.semanticProfile.clusterSuggestion}</div>
+                                                    </div>
+                                                    {table.semanticProfile.scenarios && (
+                                                        <div>
+                                                            <div className="text-xs text-slate-400 mb-1">场景</div>
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {table.semanticProfile.scenarios.map((s: string, i: number) => (
+                                                                    <span key={i} className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
+                                                                        {s}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div className="text-xs text-slate-400 text-center py-4">
+                                                    未进行语义分析
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            {/* 相似度分析 */}
+                            <div className="mt-6 border-t border-slate-200 pt-6">
+                                <h4 className="text-sm font-bold text-slate-700 mb-3">相似度分析</h4>
+                                <div className="bg-slate-50 rounded-lg p-4">
+                                    <div className="text-xs text-slate-600">
+                                        {(() => {
+                                            const tables = Array.from(selectedComparisonTables).map(id => scanAssets.find((t: any) => t.id === id));
+                                            const clusters = tables.map((t: any) => t?.semanticProfile?.clusterSuggestion || getSimpleClusterName(t?.name || ''));
+                                            const sameCluster = new Set(clusters).size === 1;
+                                            return sameCluster 
+                                                ? '✓ 这些表属于同一业务聚类，语义相似度较高'
+                                                : '这些表分布在不同的业务聚类中，建议分别分析';
+                                        })()}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -3538,6 +4100,916 @@ const DataCatalogView = () => {
     );
 };
 
+// --- 视图: 术语管理 ---
+const TermManagementView = () => {
+    const [terms, setTerms] = useState([
+        {
+            id: 'TERM_001',
+            term: '自然人',
+            englishTerm: 'Natural Person',
+            category: '业务对象',
+            definition: '具有民事权利能力和民事行为能力，依法独立享有民事权利和承担民事义务的个人',
+            synonyms: ['个人', '公民'],
+            relatedTerms: ['法人', '组织'],
+            usage: 45,
+            status: '已发布',
+            createTime: '2024-01-15',
+            updateTime: '2024-05-20',
+            creator: '张业务',
+            tags: ['核心术语', '法律术语']
+        },
+        {
+            id: 'TERM_002',
+            term: '出生医学证明',
+            englishTerm: 'Birth Medical Certificate',
+            category: '证照',
+            definition: '依据《中华人民共和国母婴保健法》出具的，证明婴儿出生状态、血亲关系以及申报国籍、户籍取得公民身份的法定医学证明',
+            synonyms: ['出生证明', '出生证'],
+            relatedTerms: ['身份证', '户口本'],
+            usage: 28,
+            status: '已发布',
+            createTime: '2024-02-10',
+            updateTime: '2024-05-18',
+            creator: '李法务',
+            tags: ['证照', '法定文件']
+        },
+        {
+            id: 'TERM_003',
+            term: '语义角色',
+            englishTerm: 'Semantic Role',
+            category: '技术术语',
+            definition: '数据字段在业务语义中的角色定位，如标识、属性、关联、状态、行为线索等',
+            synonyms: ['字段语义', '语义类型'],
+            relatedTerms: ['语义理解', '数据分类'],
+            usage: 156,
+            status: '已发布',
+            createTime: '2024-03-05',
+            updateTime: '2024-05-21',
+            creator: '王技术',
+            tags: ['技术术语', '数据治理']
+        }
+    ]);
+
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedCategory, setSelectedCategory] = useState('all');
+    const [selectedTerm, setSelectedTerm] = useState<any>(null);
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [editingTerm, setEditingTerm] = useState<any>(null);
+    const [isCreating, setIsCreating] = useState(false);
+
+    const categories = ['all', '业务对象', '证照', '技术术语', '流程术语', '数据术语'];
+
+    const filteredTerms = terms.filter(term => {
+        const matchesSearch = term.term.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            term.englishTerm.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            term.definition.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesCategory = selectedCategory === 'all' || term.category === selectedCategory;
+        return matchesSearch && matchesCategory;
+    });
+
+    const handleSave = (termData: any) => {
+        if (isCreating) {
+            setTerms([...terms, {
+                ...termData,
+                id: `TERM_${Date.now()}`,
+                usage: 0,
+                createTime: new Date().toISOString().split('T')[0],
+                updateTime: new Date().toISOString().split('T')[0],
+                creator: '当前用户',
+                status: '已发布'
+            }]);
+            setIsCreating(false);
+        } else {
+            setTerms(terms.map(t => t.id === editingTerm.id ? {
+                ...t,
+                ...termData,
+                updateTime: new Date().toISOString().split('T')[0]
+            } : t));
+        }
+        setShowEditModal(false);
+        setEditingTerm(null);
+    };
+
+    const handleDelete = (id: string) => {
+        if (confirm('确定要删除该术语吗？')) {
+            setTerms(terms.filter(t => t.id !== id));
+        }
+    };
+
+    return (
+        <div className="space-y-6 p-6 h-full flex flex-col overflow-hidden">
+            {/* 头部 */}
+            <div className="flex justify-between items-center shrink-0">
+                <div>
+                    <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                        <Book size={24} className="text-indigo-600" />
+                        术语管理
+                    </h2>
+                    <p className="text-slate-500 mt-1">统一管理业务术语和技术术语，建立企业级术语库</p>
+                </div>
+                <button
+                    onClick={() => {
+                        setIsCreating(true);
+                        setEditingTerm({
+                            term: '',
+                            englishTerm: '',
+                            category: '业务对象',
+                            definition: '',
+                            synonyms: [],
+                            relatedTerms: [],
+                            tags: []
+                        });
+                        setShowEditModal(true);
+                    }}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg flex items-center gap-2 hover:bg-indigo-700"
+                >
+                    <Plus size={16} /> 新建术语
+                </button>
+            </div>
+
+            {/* 搜索和筛选 */}
+            <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4 shrink-0">
+                <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+                    <div className="relative flex-1 w-full">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input
+                            type="text"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            placeholder="搜索术语名称、英文名或定义..."
+                            className="w-full pl-10 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <select
+                            value={selectedCategory}
+                            onChange={(e) => setSelectedCategory(e.target.value)}
+                            className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                        >
+                            {categories.map(cat => (
+                                <option key={cat} value={cat}>{cat === 'all' ? '全部分类' : cat}</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            {/* 术语列表 */}
+            <div className="flex-1 overflow-auto">
+                <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead className="bg-slate-50 border-b border-slate-200">
+                                <tr>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">术语</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">英文名</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">分类</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">使用次数</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">状态</th>
+                                    <th className="text-left py-3 px-4 font-medium text-slate-700">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredTerms.map(term => (
+                                    <tr
+                                        key={term.id}
+                                        className="border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-pointer"
+                                        onClick={() => setSelectedTerm(term)}
+                                    >
+                                        <td className="py-4 px-4">
+                                            <div className="font-medium text-slate-800">{term.term}</div>
+                                            <div className="text-xs text-slate-500 mt-1 line-clamp-1">{term.definition}</div>
+                                        </td>
+                                        <td className="py-4 px-4 text-sm text-slate-600">{term.englishTerm}</td>
+                                        <td className="py-4 px-4">
+                                            <span className="px-2 py-1 rounded text-xs font-medium bg-indigo-100 text-indigo-700">
+                                                {term.category}
+                                            </span>
+                                        </td>
+                                        <td className="py-4 px-4">
+                                            <div className="flex items-center gap-1 text-sm text-slate-600">
+                                                <Activity size={14} />
+                                                {term.usage}
+                                            </div>
+                                        </td>
+                                        <td className="py-4 px-4">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                term.status === '已发布' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                                            }`}>
+                                                {term.status}
+                                            </span>
+                                        </td>
+                                        <td className="py-4 px-4">
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setEditingTerm(term);
+                                                        setIsCreating(false);
+                                                        setShowEditModal(true);
+                                                    }}
+                                                    className="text-blue-600 hover:text-blue-800"
+                                                >
+                                                    <Edit size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleDelete(term.id);
+                                                    }}
+                                                    className="text-red-600 hover:text-red-800"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {filteredTerms.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-64 text-slate-400 bg-white rounded-xl border border-slate-200 mt-4">
+                        <Search size={48} className="mb-4 text-slate-200" />
+                        <p className="text-lg font-medium">未找到匹配的术语</p>
+                    </div>
+                )}
+            </div>
+
+            {/* 详情模态框 */}
+            {selectedTerm && !showEditModal && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden">
+                        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                            <h3 className="font-bold text-lg text-slate-800">{selectedTerm.term}</h3>
+                            <button
+                                onClick={() => setSelectedTerm(null)}
+                                className="text-slate-400 hover:text-slate-600"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <div className="text-xs text-slate-500 mb-1">英文名称</div>
+                                    <div className="text-sm font-medium text-slate-700">{selectedTerm.englishTerm}</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-slate-500 mb-1">分类</div>
+                                    <span className="px-2 py-1 rounded text-xs font-medium bg-indigo-100 text-indigo-700">
+                                        {selectedTerm.category}
+                                    </span>
+                                </div>
+                                <div className="col-span-2">
+                                    <div className="text-xs text-slate-500 mb-1">定义</div>
+                                    <div className="text-sm text-slate-700 leading-relaxed">{selectedTerm.definition}</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-slate-500 mb-1">同义词</div>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        {selectedTerm.synonyms.map((syn: string) => (
+                                            <span key={syn} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">
+                                                {syn}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-slate-500 mb-1">相关术语</div>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        {selectedTerm.relatedTerms.map((rel: string) => (
+                                            <span key={rel} className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">
+                                                {rel}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-slate-500 mb-1">使用次数</div>
+                                    <div className="text-sm font-medium text-slate-700 flex items-center gap-1">
+                                        <Activity size={14} />
+                                        {selectedTerm.usage}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-slate-500 mb-1">状态</div>
+                                    <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                        selectedTerm.status === '已发布' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                        {selectedTerm.status}
+                                    </span>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-slate-500 mb-1">创建人</div>
+                                    <div className="text-sm text-slate-700">{selectedTerm.creator}</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-slate-500 mb-1">更新时间</div>
+                                    <div className="text-sm text-slate-700">{selectedTerm.updateTime}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                            <button
+                                onClick={() => setSelectedTerm(null)}
+                                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded-md"
+                            >
+                                关闭
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 编辑/创建模态框 */}
+            {showEditModal && editingTerm && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
+                        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                            <h3 className="font-bold text-lg text-slate-800">{isCreating ? '新建术语' : '编辑术语'}</h3>
+                            <button
+                                onClick={() => {
+                                    setShowEditModal(false);
+                                    setEditingTerm(null);
+                                    setIsCreating(false);
+                                }}
+                                className="text-slate-400 hover:text-slate-600"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-200px)]">
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">术语名称 *</label>
+                                <input
+                                    type="text"
+                                    value={editingTerm.term}
+                                    onChange={(e) => setEditingTerm({...editingTerm, term: e.target.value})}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                                    placeholder="请输入术语名称"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">英文名称</label>
+                                <input
+                                    type="text"
+                                    value={editingTerm.englishTerm}
+                                    onChange={(e) => setEditingTerm({...editingTerm, englishTerm: e.target.value})}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                                    placeholder="请输入英文名称"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">分类</label>
+                                <select
+                                    value={editingTerm.category}
+                                    onChange={(e) => setEditingTerm({...editingTerm, category: e.target.value})}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                                >
+                                    {categories.filter(c => c !== 'all').map(cat => (
+                                        <option key={cat} value={cat}>{cat}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">定义 *</label>
+                                <textarea
+                                    value={editingTerm.definition}
+                                    onChange={(e) => setEditingTerm({...editingTerm, definition: e.target.value})}
+                                    rows={4}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                                    placeholder="请输入术语定义"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">同义词（用逗号分隔）</label>
+                                <input
+                                    type="text"
+                                    value={Array.isArray(editingTerm.synonyms) ? editingTerm.synonyms.join(', ') : ''}
+                                    onChange={(e) => setEditingTerm({
+                                        ...editingTerm,
+                                        synonyms: e.target.value.split(',').map(s => s.trim()).filter(s => s)
+                                    })}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                                    placeholder="例如: 同义词1, 同义词2"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">相关术语（用逗号分隔）</label>
+                                <input
+                                    type="text"
+                                    value={Array.isArray(editingTerm.relatedTerms) ? editingTerm.relatedTerms.join(', ') : ''}
+                                    onChange={(e) => setEditingTerm({
+                                        ...editingTerm,
+                                        relatedTerms: e.target.value.split(',').map(s => s.trim()).filter(s => s)
+                                    })}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                                    placeholder="例如: 相关术语1, 相关术语2"
+                                />
+                            </div>
+                        </div>
+                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                            <button
+                                onClick={() => {
+                                    setShowEditModal(false);
+                                    setEditingTerm(null);
+                                    setIsCreating(false);
+                                }}
+                                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded-md"
+                            >
+                                取消
+                            </button>
+                            <button
+                                onClick={() => handleSave(editingTerm)}
+                                className="px-4 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-md"
+                            >
+                                保存
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// --- 视图: 标签管理 ---
+const TagManagementView = () => {
+    const [tags, setTags] = useState([
+        {
+            id: 'TAG_001',
+            name: '核心资产',
+            code: 'core_asset',
+            category: '资产分类',
+            description: '企业核心数据资产标签',
+            color: '#3B82F6',
+            parentId: null,
+            usage: 42,
+            status: '已启用',
+            createTime: '2024-01-10',
+            updateTime: '2024-05-20',
+            creator: '管理员'
+        },
+        {
+            id: 'TAG_002',
+            name: '业务对象',
+            code: 'business_object',
+            category: '资产分类',
+            description: '业务对象相关标签',
+            color: '#8B5CF6',
+            parentId: null,
+            usage: 35,
+            status: '已启用',
+            createTime: '2024-01-15',
+            updateTime: '2024-05-18',
+            creator: '管理员'
+        },
+        {
+            id: 'TAG_003',
+            name: '出生一件事',
+            code: 'birth_event',
+            category: '业务场景',
+            description: '出生一件事相关业务标签',
+            color: '#10B981',
+            parentId: null,
+            usage: 28,
+            status: '已启用',
+            createTime: '2024-02-01',
+            updateTime: '2024-05-15',
+            creator: '业务团队'
+        },
+        {
+            id: 'TAG_004',
+            name: '人口数据',
+            code: 'population_data',
+            category: '数据分类',
+            description: '人口相关数据标签',
+            color: '#F59E0B',
+            parentId: 'TAG_002',
+            usage: 15,
+            status: '已启用',
+            createTime: '2024-02-05',
+            updateTime: '2024-05-10',
+            creator: '数据团队'
+        }
+    ]);
+
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedCategory, setSelectedCategory] = useState('all');
+    const [selectedTag, setSelectedTag] = useState<any>(null);
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [editingTag, setEditingTag] = useState<any>(null);
+    const [isCreating, setIsCreating] = useState(false);
+    const [viewMode, setViewMode] = useState<'list' | 'tree'>('list');
+
+    const categories = ['all', '资产分类', '业务场景', '数据分类', '技术标签', '质量标签'];
+
+    const filteredTags = tags.filter(tag => {
+        const matchesSearch = tag.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            tag.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            tag.description.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesCategory = selectedCategory === 'all' || tag.category === selectedCategory;
+        return matchesSearch && matchesCategory;
+    });
+
+    // 构建标签树
+    const tagTree = useMemo(() => {
+        const rootTags = tags.filter(t => !t.parentId);
+        return rootTags.map(root => ({
+            ...root,
+            children: tags.filter(t => t.parentId === root.id)
+        }));
+    }, [tags]);
+
+    const handleSave = (tagData: any) => {
+        if (isCreating) {
+            setTags([...tags, {
+                ...tagData,
+                id: `TAG_${Date.now()}`,
+                usage: 0,
+                createTime: new Date().toISOString().split('T')[0],
+                updateTime: new Date().toISOString().split('T')[0],
+                creator: '当前用户',
+                status: '已启用'
+            }]);
+            setIsCreating(false);
+        } else {
+            setTags(tags.map(t => t.id === editingTag.id ? {
+                ...t,
+                ...tagData,
+                updateTime: new Date().toISOString().split('T')[0]
+            } : t));
+        }
+        setShowEditModal(false);
+        setEditingTag(null);
+    };
+
+    const handleDelete = (id: string) => {
+        if (confirm('确定要删除该标签吗？')) {
+            setTags(tags.filter(t => t.id !== id));
+        }
+    };
+
+    return (
+        <div className="space-y-6 p-6 h-full flex flex-col overflow-hidden">
+            {/* 头部 */}
+            <div className="flex justify-between items-center shrink-0">
+                <div>
+                    <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                        <Tag size={24} className="text-indigo-600" />
+                        标签管理
+                    </h2>
+                    <p className="text-slate-500 mt-1">统一管理数据资产标签，支持标签分类和层级关系</p>
+                </div>
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center bg-slate-100 rounded-lg p-1">
+                        <button
+                            onClick={() => setViewMode('list')}
+                            className={`p-2 rounded-md transition-all ${
+                                viewMode === 'list'
+                                    ? 'bg-white text-indigo-600 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                        >
+                            <List size={16} />
+                        </button>
+                        <button
+                            onClick={() => setViewMode('tree')}
+                            className={`p-2 rounded-md transition-all ${
+                                viewMode === 'tree'
+                                    ? 'bg-white text-indigo-600 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                        >
+                            <Folder size={16} />
+                        </button>
+                    </div>
+                    <button
+                        onClick={() => {
+                            setIsCreating(true);
+                            setEditingTag({
+                                name: '',
+                                code: '',
+                                category: '资产分类',
+                                description: '',
+                                color: '#3B82F6',
+                                parentId: null
+                            });
+                            setShowEditModal(true);
+                        }}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg flex items-center gap-2 hover:bg-indigo-700"
+                    >
+                        <Plus size={16} /> 新建标签
+                    </button>
+                </div>
+            </div>
+
+            {/* 搜索和筛选 */}
+            <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4 shrink-0">
+                <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+                    <div className="relative flex-1 w-full">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input
+                            type="text"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            placeholder="搜索标签名称、编码或描述..."
+                            className="w-full pl-10 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <select
+                            value={selectedCategory}
+                            onChange={(e) => setSelectedCategory(e.target.value)}
+                            className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                        >
+                            {categories.map(cat => (
+                                <option key={cat} value={cat}>{cat === 'all' ? '全部分类' : cat}</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            {/* 标签列表/树 */}
+            <div className="flex-1 overflow-auto">
+                {viewMode === 'list' ? (
+                    <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full">
+                                <thead className="bg-slate-50 border-b border-slate-200">
+                                    <tr>
+                                        <th className="text-left py-3 px-4 font-medium text-slate-700">标签</th>
+                                        <th className="text-left py-3 px-4 font-medium text-slate-700">编码</th>
+                                        <th className="text-left py-3 px-4 font-medium text-slate-700">分类</th>
+                                        <th className="text-left py-3 px-4 font-medium text-slate-700">使用次数</th>
+                                        <th className="text-left py-3 px-4 font-medium text-slate-700">状态</th>
+                                        <th className="text-left py-3 px-4 font-medium text-slate-700">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredTags.map(tag => (
+                                        <tr
+                                            key={tag.id}
+                                            className="border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-pointer"
+                                            onClick={() => setSelectedTag(tag)}
+                                        >
+                                            <td className="py-4 px-4">
+                                                <div className="flex items-center gap-2">
+                                                    <div
+                                                        className="w-4 h-4 rounded"
+                                                        style={{ backgroundColor: tag.color }}
+                                                    ></div>
+                                                    <div>
+                                                        <div className="font-medium text-slate-800">{tag.name}</div>
+                                                        <div className="text-xs text-slate-500 mt-1 line-clamp-1">{tag.description}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="py-4 px-4 text-sm text-slate-600 font-mono">{tag.code}</td>
+                                            <td className="py-4 px-4">
+                                                <span className="px-2 py-1 rounded text-xs font-medium bg-indigo-100 text-indigo-700">
+                                                    {tag.category}
+                                                </span>
+                                            </td>
+                                            <td className="py-4 px-4">
+                                                <div className="flex items-center gap-1 text-sm text-slate-600">
+                                                    <Activity size={14} />
+                                                    {tag.usage}
+                                                </div>
+                                            </td>
+                                            <td className="py-4 px-4">
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                    tag.status === '已启用' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                                                }`}>
+                                                    {tag.status}
+                                                </span>
+                                            </td>
+                                            <td className="py-4 px-4">
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setEditingTag(tag);
+                                                            setIsCreating(false);
+                                                            setShowEditModal(true);
+                                                        }}
+                                                        className="text-blue-600 hover:text-blue-800"
+                                                    >
+                                                        <Edit size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDelete(tag.id);
+                                                        }}
+                                                        className="text-red-600 hover:text-red-800"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+                        <div className="space-y-2">
+                            {tagTree.map(tag => (
+                                <div key={tag.id} className="border border-slate-200 rounded-lg p-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div
+                                                className="w-4 h-4 rounded"
+                                                style={{ backgroundColor: tag.color }}
+                                            ></div>
+                                            <div>
+                                                <div className="font-medium text-slate-800">{tag.name}</div>
+                                                <div className="text-xs text-slate-500">{tag.description}</div>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <span className="text-xs text-slate-500">使用 {tag.usage} 次</span>
+                                            <button
+                                                onClick={() => {
+                                                    setEditingTag(tag);
+                                                    setIsCreating(false);
+                                                    setShowEditModal(true);
+                                                }}
+                                                className="text-blue-600 hover:text-blue-800"
+                                            >
+                                                <Edit size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {tag.children && tag.children.length > 0 && (
+                                        <div className="mt-3 ml-7 space-y-2 pl-4 border-l-2 border-slate-200">
+                                            {tag.children.map((child: any) => (
+                                                <div key={child.id} className="flex items-center justify-between py-2">
+                                                    <div className="flex items-center gap-3">
+                                                        <div
+                                                            className="w-3 h-3 rounded"
+                                                            style={{ backgroundColor: child.color }}
+                                                        ></div>
+                                                        <div>
+                                                            <div className="text-sm font-medium text-slate-700">{child.name}</div>
+                                                            <div className="text-xs text-slate-500">{child.description}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-4">
+                                                        <span className="text-xs text-slate-500">使用 {child.usage} 次</span>
+                                                        <button
+                                                            onClick={() => {
+                                                                setEditingTag(child);
+                                                                setIsCreating(false);
+                                                                setShowEditModal(true);
+                                                            }}
+                                                            className="text-blue-600 hover:text-blue-800"
+                                                        >
+                                                            <Edit size={14} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {filteredTags.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-64 text-slate-400 bg-white rounded-xl border border-slate-200 mt-4">
+                        <Search size={48} className="mb-4 text-slate-200" />
+                        <p className="text-lg font-medium">未找到匹配的标签</p>
+                    </div>
+                )}
+            </div>
+
+            {/* 编辑/创建模态框 */}
+            {showEditModal && editingTag && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
+                        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                            <h3 className="font-bold text-lg text-slate-800">{isCreating ? '新建标签' : '编辑标签'}</h3>
+                            <button
+                                onClick={() => {
+                                    setShowEditModal(false);
+                                    setEditingTag(null);
+                                    setIsCreating(false);
+                                }}
+                                className="text-slate-400 hover:text-slate-600"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-200px)]">
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">标签名称 *</label>
+                                <input
+                                    type="text"
+                                    value={editingTag.name}
+                                    onChange={(e) => setEditingTag({...editingTag, name: e.target.value})}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                                    placeholder="请输入标签名称"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">标签编码 *</label>
+                                <input
+                                    type="text"
+                                    value={editingTag.code}
+                                    onChange={(e) => setEditingTag({...editingTag, code: e.target.value})}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 font-mono"
+                                    placeholder="例如: core_asset"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">分类</label>
+                                <select
+                                    value={editingTag.category}
+                                    onChange={(e) => setEditingTag({...editingTag, category: e.target.value})}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                                >
+                                    {categories.filter(c => c !== 'all').map(cat => (
+                                        <option key={cat} value={cat}>{cat}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">描述</label>
+                                <textarea
+                                    value={editingTag.description}
+                                    onChange={(e) => setEditingTag({...editingTag, description: e.target.value})}
+                                    rows={3}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                                    placeholder="请输入标签描述"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">颜色</label>
+                                <div className="flex items-center gap-3">
+                                    <input
+                                        type="color"
+                                        value={editingTag.color}
+                                        onChange={(e) => setEditingTag({...editingTag, color: e.target.value})}
+                                        className="w-16 h-10 border border-slate-200 rounded-lg cursor-pointer"
+                                    />
+                                    <input
+                                        type="text"
+                                        value={editingTag.color}
+                                        onChange={(e) => setEditingTag({...editingTag, color: e.target.value})}
+                                        className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 font-mono"
+                                        placeholder="#3B82F6"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">父标签（可选）</label>
+                                <select
+                                    value={editingTag.parentId || ''}
+                                    onChange={(e) => setEditingTag({...editingTag, parentId: e.target.value || null})}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                                >
+                                    <option value="">无父标签</option>
+                                    {tags.filter(t => !t.parentId && t.id !== editingTag.id).map(tag => (
+                                        <option key={tag.id} value={tag.id}>{tag.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                            <button
+                                onClick={() => {
+                                    setShowEditModal(false);
+                                    setEditingTag(null);
+                                    setIsCreating(false);
+                                }}
+                                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded-md"
+                            >
+                                取消
+                            </button>
+                            <button
+                                onClick={() => handleSave(editingTag)}
+                                className="px-4 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-md"
+                            >
+                                保存
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 // --- 视图: 识别结果确认 (Bottom-up 识别模块) ---
 const IdentificationResultView = ({ setActiveModule, dataSources, scanAssets, setScanAssets }: any) => {
     const [activeTab, setActiveTab] = useState<'overview' | 'comparison' | 'batch' | 'conflict'>('overview');
@@ -3895,6 +5367,7 @@ const IdentificationResultView = ({ setActiveModule, dataSources, scanAssets, se
                 {activeTab === 'conflict' && (
                     <ConflictExplanationTab
                         results={identificationResults}
+                        setResults={setIdentificationResults}
                         selectedConflict={selectedConflict}
                         setSelectedConflict={setSelectedConflict}
                         onNavigateToComparison={() => setActiveTab('comparison')}
@@ -3918,81 +5391,73 @@ const IdentificationOverviewTab = ({ results, onNavigateToComparison, onNavigate
     };
 
     return (
-        <div className="h-full flex flex-col p-6 gap-6 overflow-y-auto">
+        <div className="h-full flex flex-col p-6 gap-6 overflow-hidden">
             {/* 统计卡片 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
-                    <div className="text-xs text-slate-500 uppercase font-bold mb-1">总表数</div>
-                    <div className="text-2xl font-bold text-slate-800">{stats.total}</div>
-                    <div className="text-xs text-slate-400 mt-1">已识别表对象</div>
-                </div>
-                <div className="bg-white border border-emerald-200 rounded-lg p-4 shadow-sm bg-emerald-50">
-                    <div className="text-xs text-emerald-600 uppercase font-bold mb-1">已接受</div>
-                    <div className="text-2xl font-bold text-emerald-700">{stats.accepted}</div>
-                    <div className="text-xs text-emerald-500 mt-1">已确认识别结果</div>
-                </div>
-                <div className="bg-white border border-yellow-200 rounded-lg p-4 shadow-sm bg-yellow-50">
-                    <div className="text-xs text-yellow-600 uppercase font-bold mb-1">待确认</div>
-                    <div className="text-2xl font-bold text-yellow-700">{stats.pending}</div>
-                    <div className="text-xs text-yellow-500 mt-1">需要人工确认</div>
-                </div>
-                <div className="bg-white border border-orange-200 rounded-lg p-4 shadow-sm bg-orange-50">
-                    <div className="text-xs text-orange-600 uppercase font-bold mb-1">冲突项</div>
-                    <div className="text-2xl font-bold text-orange-700">{stats.conflicts}</div>
-                    <div className="text-xs text-orange-500 mt-1">规则与AI不一致</div>
-                </div>
-                <div className="bg-white border border-blue-200 rounded-lg p-4 shadow-sm bg-blue-50">
-                    <div className="text-xs text-blue-600 uppercase font-bold mb-1">平均置信度</div>
-                    <div className="text-2xl font-bold text-blue-700">{stats.avgConfidence}%</div>
-                    <div className="text-xs text-blue-500 mt-1">整体识别质量</div>
+            <div className="bg-white border border-slate-200 rounded-lg p-3 flex-shrink-0">
+                <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500">总表数：</span>
+                        <span className="text-lg font-bold text-slate-800">{stats.total}</span>
+                    </div>
+                    <div className="h-6 w-px bg-slate-300"></div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-emerald-600">已接受：</span>
+                        <span className="text-lg font-bold text-emerald-700">{stats.accepted}</span>
+                    </div>
+                    <div className="h-6 w-px bg-slate-300"></div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-yellow-600">待确认：</span>
+                        <span className="text-lg font-bold text-yellow-700">{stats.pending}</span>
+                    </div>
+                    <div className="h-6 w-px bg-slate-300"></div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-orange-600">冲突项：</span>
+                        <span className="text-lg font-bold text-orange-700">{stats.conflicts}</span>
+                    </div>
+                    <div className="h-6 w-px bg-slate-300"></div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-blue-600">平均置信度：</span>
+                        <span className="text-lg font-bold text-blue-700">{stats.avgConfidence}%</span>
+                    </div>
                 </div>
             </div>
 
             {/* 快速操作区 */}
-            <div className="bg-white border border-slate-200 rounded-lg p-6">
-                <h3 className="text-lg font-bold text-slate-800 mb-4">快速操作</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white border border-slate-200 rounded-lg p-3 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-slate-700 whitespace-nowrap">快速操作：</span>
                     <button
                         onClick={onNavigateToComparison}
-                        className="p-4 bg-emerald-50 border-2 border-emerald-300 rounded-lg hover:bg-emerald-100 transition-colors text-left"
+                        className="px-4 py-2 bg-emerald-50 border border-emerald-300 rounded-lg hover:bg-emerald-100 transition-colors flex items-center gap-2 text-sm font-medium text-emerald-700"
                     >
-                        <div className="flex items-center gap-2 mb-2">
-                            <FileCheck className="text-emerald-600" size={20} />
-                            <span className="font-bold text-emerald-700">识别结果对比</span>
-                        </div>
-                        <p className="text-sm text-slate-600">查看并确认每张表的识别结果</p>
+                        <FileCheck size={16} />
+                        <span>识别结果对比</span>
                     </button>
                     <button
                         onClick={onNavigateToBatch}
-                        className="p-4 bg-blue-50 border-2 border-blue-300 rounded-lg hover:bg-blue-100 transition-colors text-left"
+                        className="px-4 py-2 bg-blue-50 border border-blue-300 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-2 text-sm font-medium text-blue-700"
                     >
-                        <div className="flex items-center gap-2 mb-2">
-                            <CheckSquare className="text-blue-600" size={20} />
-                            <span className="font-bold text-blue-700">批量确认</span>
-                        </div>
-                        <p className="text-sm text-slate-600">批量处理高置信度识别结果</p>
+                        <CheckSquare size={16} />
+                        <span>批量确认</span>
                     </button>
                     <button
                         onClick={onNavigateToConflict}
-                        className="p-4 bg-orange-50 border-2 border-orange-300 rounded-lg hover:bg-orange-100 transition-colors text-left"
+                        className="px-4 py-2 bg-orange-50 border border-orange-300 rounded-lg hover:bg-orange-100 transition-colors flex items-center gap-2 text-sm font-medium text-orange-700"
                     >
-                        <div className="flex items-center gap-2 mb-2">
-                            <AlertTriangle className="text-orange-600" size={20} />
-                            <span className="font-bold text-orange-700">冲突解释</span>
-                        </div>
-                        <p className="text-sm text-slate-600">处理规则与AI判断冲突</p>
+                        <AlertTriangle size={16} />
+                        <span>冲突解释</span>
                     </button>
                 </div>
             </div>
 
             {/* 识别结果列表预览 */}
-            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                <div className="p-4 border-b border-slate-200 bg-slate-50">
+            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden flex flex-col flex-1 min-h-0">
+                <div className="p-4 border-b border-slate-200 bg-slate-50 flex-shrink-0">
                     <h3 className="text-lg font-bold text-slate-800">识别结果预览</h3>
                 </div>
-                <div className="overflow-x-auto">
+                <div className="flex-1 overflow-auto min-h-0">
                     <table className="w-full text-sm">
-                        <thead className="bg-slate-50">
+                        <thead className="bg-slate-50 sticky top-0 z-10">
                             <tr>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">表名</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">对象建议</th>
@@ -4002,9 +5467,9 @@ const IdentificationOverviewTab = ({ results, onNavigateToComparison, onNavigate
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {results.slice(0, 10).map((result: any) => (
+                            {results.map((result: any) => (
                                 <tr key={result.id} className="hover:bg-slate-50">
-                                    <td className="px-4 py-3 font-mono text-sm">{result.tableName}</td>
+                                    <td className="px-4 py-3 font-mono text-sm whitespace-nowrap">{result.tableName}</td>
                                     <td className="px-4 py-3">
                                         <div className="font-medium text-sm">{result.objectSuggestion?.name}</div>
                                         <div className="text-xs text-slate-500">{result.tableComment}</div>
@@ -4017,26 +5482,28 @@ const IdentificationOverviewTab = ({ results, onNavigateToComparison, onNavigate
                                                     style={{ width: `${(result.objectSuggestion?.confidence || 0) * 100}%` }}
                                                 ></div>
                                             </div>
-                                            <span className="text-xs text-slate-600">
+                                            <span className="text-xs text-slate-600 whitespace-nowrap">
                                                 {Math.round((result.objectSuggestion?.confidence || 0) * 100)}%
                                             </span>
                                         </div>
                                     </td>
                                     <td className="px-4 py-3">
-                                        {result.hasConflict && (
-                                            <span className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded">冲突</span>
-                                        )}
-                                        {result.needsConfirmation && (
-                                            <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-700 rounded ml-1">待确认</span>
-                                        )}
-                                        {result.objectSuggestion?.status === 'accepted' && (
-                                            <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded ml-1">已接受</span>
-                                        )}
+                                        <div className="flex flex-wrap gap-1">
+                                            {result.hasConflict && (
+                                                <span className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded">冲突</span>
+                                            )}
+                                            {result.needsConfirmation && (
+                                                <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-700 rounded">待确认</span>
+                                            )}
+                                            {result.objectSuggestion?.status === 'accepted' && (
+                                                <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">已接受</span>
+                                            )}
+                                        </div>
                                     </td>
                                     <td className="px-4 py-3">
                                         <button
                                             onClick={onNavigateToComparison}
-                                            className="text-blue-600 text-sm hover:underline"
+                                            className="text-blue-600 text-sm hover:underline whitespace-nowrap"
                                         >
                                             查看详情
                                         </button>
@@ -4046,16 +5513,6 @@ const IdentificationOverviewTab = ({ results, onNavigateToComparison, onNavigate
                         </tbody>
                     </table>
                 </div>
-                {results.length > 10 && (
-                    <div className="p-4 border-t border-slate-200 bg-slate-50 text-center">
-                        <button
-                            onClick={onNavigateToComparison}
-                            className="text-blue-600 text-sm hover:underline"
-                        >
-                            查看全部 {results.length} 条记录 →
-                        </button>
-                    </div>
-                )}
             </div>
         </div>
     );
@@ -4671,7 +6128,11 @@ const BatchConfirmationTab = ({ results, setResults, selectedItems, setSelectedI
 };
 
 // 子组件3: 冲突解释与校准页
-const ConflictExplanationTab = ({ results, selectedConflict, setSelectedConflict, onNavigateToComparison }: any) => {
+const ConflictExplanationTab = ({ results, setResults, selectedConflict, setSelectedConflict, onNavigateToComparison }: any) => {
+    const [selectedDecision, setSelectedDecision] = useState<'rule' | 'ai' | 'manual' | null>(null);
+    const [manualSemanticRole, setManualSemanticRole] = useState('');
+    const [decisionNote, setDecisionNote] = useState('');
+    const [decisionHistory, setDecisionHistory] = useState<Record<string, any>>({});
     // 规则判断数据映射
     const ruleJudgments: Record<string, any> = {
         'IR_001_pay_time': {
@@ -4766,6 +6227,121 @@ const ConflictExplanationTab = ({ results, selectedConflict, setSelectedConflict
         );
 
     const currentConflict = conflicts.find((c: any) => `${c.tableId}_${c.field}` === selectedConflict) || conflicts[0];
+    
+    // 当切换冲突项时，重置决策状态
+    useEffect(() => {
+        if (currentConflict) {
+            const conflictKey = `${currentConflict.tableId}_${currentConflict.field}`;
+            const history = decisionHistory[conflictKey];
+            if (history) {
+                setSelectedDecision(history.decision);
+                setManualSemanticRole(history.manualRole || '');
+                setDecisionNote(history.note || '');
+            } else {
+                setSelectedDecision(null);
+                setManualSemanticRole('');
+                setDecisionNote('');
+            }
+        }
+    }, [selectedConflict, decisionHistory]);
+    
+    // 计算推荐结果
+    const getRecommendedDecision = (conflict: any) => {
+        if (!conflict || !conflict.ruleJudgment) return 'ai';
+        const aiConfidence = conflict.confidence || 0;
+        const ruleConfidence = conflict.ruleJudgment.ruleConfidence || 0;
+        // 如果AI置信度高于规则置信度5%以上，推荐AI，否则推荐规则
+        return aiConfidence > ruleConfidence + 0.05 ? 'ai' : 'rule';
+    };
+    
+    const recommendedDecision = currentConflict ? getRecommendedDecision(currentConflict) : 'ai';
+    
+    // 确认决策
+    const handleConfirmDecision = () => {
+        if (!currentConflict || !selectedDecision) {
+            alert('请先选择决策方案');
+            return;
+        }
+        
+        if (selectedDecision === 'manual' && !manualSemanticRole.trim()) {
+            alert('手动指定时，请填写语义角色');
+            return;
+        }
+        
+        const now = new Date().toLocaleString('zh-CN');
+        const currentUser = '当前用户';
+        const conflictKey = `${currentConflict.tableId}_${currentConflict.field}`;
+        
+        // 确定最终的语义角色
+        let finalSemanticRole = currentConflict.semanticRole;
+        if (selectedDecision === 'rule' && currentConflict.ruleJudgment) {
+            finalSemanticRole = currentConflict.ruleJudgment.ruleResult;
+        } else if (selectedDecision === 'manual') {
+            finalSemanticRole = manualSemanticRole.trim();
+        }
+        
+        // 更新识别结果
+        setResults((prev: any[]) => prev.map((r: any) => {
+            if (r.id === currentConflict.tableId) {
+                return {
+                    ...r,
+                    fieldSuggestions: r.fieldSuggestions.map((f: any) => {
+                        if (f.field === currentConflict.field) {
+                            const auditTrail = {
+                                recordBy: currentUser,
+                                recordTime: now,
+                                action: 'accept',
+                                basis: selectedDecision === 'rule' ? 'rule' : selectedDecision === 'ai' ? 'ai' : 'manual',
+                                originalAI: currentConflict.semanticRole,
+                                originalRule: currentConflict.ruleJudgment?.ruleResult,
+                                decision: selectedDecision,
+                                note: decisionNote.trim() || undefined
+                            };
+                            return {
+                                ...f,
+                                semanticRole: finalSemanticRole,
+                                status: 'accepted',
+                                conflict: false, // 解决冲突
+                                auditTrail: auditTrail
+                            };
+                        }
+                        return f;
+                    }),
+                    hasConflict: r.fieldSuggestions.some((f: any) => 
+                        f.field !== currentConflict.field && f.conflict
+                    ) // 检查是否还有其他冲突
+                };
+            }
+            return r;
+        }));
+        
+        // 记录决策历史
+        setDecisionHistory((prev: any) => ({
+            ...prev,
+            [conflictKey]: {
+                decision: selectedDecision,
+                manualRole: manualSemanticRole.trim(),
+                note: decisionNote.trim(),
+                timestamp: now,
+                finalRole: finalSemanticRole
+            }
+        }));
+        
+        alert(`已确认决策：${selectedDecision === 'rule' ? '采用规则' : selectedDecision === 'ai' ? '采用AI' : '手动指定'} - ${finalSemanticRole}`);
+        
+        // 清空表单
+        setSelectedDecision(null);
+        setManualSemanticRole('');
+        setDecisionNote('');
+        
+        // 如果有下一个冲突，自动切换到下一个
+        const currentIndex = conflicts.findIndex((c: any) => `${c.tableId}_${c.field}` === conflictKey);
+        if (currentIndex < conflicts.length - 1) {
+            setSelectedConflict(`${conflicts[currentIndex + 1].tableId}_${conflicts[currentIndex + 1].field}`);
+        } else if (currentIndex === conflicts.length - 1 && conflicts.length > 1) {
+            setSelectedConflict(`${conflicts[0].tableId}_${conflicts[0].field}`);
+        }
+    };
 
     return (
         <div className="h-full flex flex-col p-6 gap-4">
@@ -4777,104 +6353,231 @@ const ConflictExplanationTab = ({ results, selectedConflict, setSelectedConflict
             <div className="flex-1 flex gap-4 overflow-hidden">
                 {/* 左栏：规则判断 */}
                 <div className="w-80 bg-white border border-slate-200 rounded-lg flex flex-col overflow-hidden flex-shrink-0">
-                    <div className="p-4 border-b border-slate-200 bg-slate-50">
+                    <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
                         <h4 className="text-sm font-bold text-slate-700">规则判断</h4>
+                        <span className="text-xs text-slate-500">共 {conflicts.length} 项冲突</span>
                     </div>
-                    {currentConflict && currentConflict.ruleJudgment && (
-                        <div className="p-4 border-b border-slate-200 bg-blue-50">
-                            <div className="text-xs text-slate-600 mb-2">当前选中冲突的规则判断：</div>
-                            <div className="space-y-2">
+                    {currentConflict && currentConflict.ruleJudgment ? (
+                        <div className="p-4 border-b border-slate-200 bg-blue-50 flex-shrink-0">
+                            <div className="text-xs text-slate-600 mb-3 font-medium">当前冲突的规则判断：</div>
+                            <div className="space-y-2 mb-3">
                                 {currentConflict.ruleJudgment.rules.map((rule: any, idx: number) => (
-                                    <div key={idx} className="p-2 bg-white rounded border border-blue-200">
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="text-xs font-mono text-blue-600">{rule.id}</span>
-                                            <span className="text-xs text-slate-500">权重: {Math.round(rule.weight * 100)}%</span>
+                                    <div key={idx} className="p-2.5 bg-white rounded border border-blue-200 shadow-sm">
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <span className="text-xs font-mono text-blue-600 font-medium">{rule.id}</span>
+                                            <span className="text-xs text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                                权重 {Math.round(rule.weight * 100)}%
+                                            </span>
                                         </div>
-                                        <div className="text-xs font-medium text-slate-700 mb-1">{rule.name}</div>
-                                        <div className="text-xs text-slate-600 mb-1">{rule.reason}</div>
-                                        <div className="text-xs text-blue-600">结果: {rule.result}</div>
+                                        <div className="text-xs font-semibold text-slate-700 mb-1">{rule.name}</div>
+                                        <div className="text-xs text-slate-600 mb-1.5 leading-relaxed">{rule.reason}</div>
+                                        <div className="text-xs text-blue-600 font-medium">→ {rule.result}</div>
                                     </div>
                                 ))}
-                                <div className="mt-2 p-2 bg-white rounded border-2 border-blue-300">
-                                    <div className="text-xs text-slate-600 mb-1">规则综合判断：</div>
-                                    <div className="text-sm font-bold text-blue-700">{currentConflict.ruleJudgment.ruleResult}</div>
-                                    <div className="text-xs text-slate-500 mt-1">置信度: {Math.round(currentConflict.ruleJudgment.ruleConfidence * 100)}%</div>
+                            </div>
+                            <div className="p-3 bg-white rounded border-2 border-blue-400 shadow-sm">
+                                <div className="text-xs text-slate-600 mb-1.5 font-medium">规则综合判断：</div>
+                                <div className="text-base font-bold text-blue-700 mb-1">{currentConflict.ruleJudgment.ruleResult}</div>
+                                <div className="flex items-center gap-2">
+                                    <div className="flex-1 bg-slate-200 rounded-full h-2">
+                                        <div
+                                            className="bg-blue-500 h-2 rounded-full transition-all"
+                                            style={{ width: `${currentConflict.ruleJudgment.ruleConfidence * 100}%` }}
+                                        ></div>
+                                    </div>
+                                    <span className="text-xs text-slate-600 font-medium">
+                                        {Math.round(currentConflict.ruleJudgment.ruleConfidence * 100)}%
+                                    </span>
                                 </div>
                             </div>
                         </div>
+                    ) : (
+                        <div className="p-4 border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
+                            当前冲突项暂无规则判断数据
+                        </div>
                     )}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                        {conflicts.map((conflict: any, idx: number) => (
-                            <div
-                                key={idx}
-                                onClick={() => setSelectedConflict(`${conflict.tableId}_${conflict.field}`)}
-                                className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                                    selectedConflict === `${conflict.tableId}_${conflict.field}`
-                                        ? 'bg-orange-50 border-orange-300'
-                                        : 'bg-slate-50 border-slate-200 hover:border-orange-200'
-                                }`}
-                            >
-                                <div className="font-medium text-sm text-slate-800 mb-1">{conflict.tableName}.{conflict.field}</div>
-                                <div className="text-xs text-slate-500 mb-2">规则与 AI 判断不一致</div>
-                                {conflict.ruleJudgment && (
-                                    <div className="text-xs text-blue-600">
-                                        规则: {conflict.ruleJudgment.ruleResult}
-                                    </div>
-                                )}
+                    <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                        {conflicts.length === 0 ? (
+                            <div className="text-center text-sm text-slate-400 py-8">
+                                暂无冲突项
                             </div>
-                        ))}
+                        ) : (
+                            conflicts.map((conflict: any, idx: number) => {
+                                const conflictKey = `${conflict.tableId}_${conflict.field}`;
+                                const history = decisionHistory[conflictKey];
+                                const isSelected = selectedConflict === conflictKey;
+                                return (
+                                    <div
+                                        key={idx}
+                                        onClick={() => setSelectedConflict(conflictKey)}
+                                        className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                                            isSelected
+                                                ? 'bg-orange-50 border-orange-400 shadow-sm'
+                                                : 'bg-slate-50 border-slate-200 hover:border-orange-300 hover:shadow'
+                                        }`}
+                                    >
+                                        <div className="flex items-start justify-between mb-1">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-medium text-sm text-slate-800 truncate">{conflict.tableName}</div>
+                                                <div className="font-mono text-xs text-slate-600 truncate">{conflict.field}</div>
+                                            </div>
+                                            {history && (
+                                                <CheckCircle size={14} className="text-green-500 flex-shrink-0 mt-0.5" title="已决策" />
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-2 mt-2">
+                                            {conflict.ruleJudgment && (
+                                                <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
+                                                    规则: {conflict.ruleJudgment.ruleResult}
+                                                </span>
+                                            )}
+                                            <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">
+                                                AI: {conflict.semanticRole}
+                                            </span>
+                                        </div>
+                                        {history && (
+                                            <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-slate-500">
+                                                已决策: {history.finalRole}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })
+                        )}
                     </div>
                 </div>
 
-                {/* 中栏：AI 判断 */}
+                {/* 中栏：AI 判断与对比 */}
                 <div className="flex-1 bg-white border border-slate-200 rounded-lg flex flex-col overflow-hidden">
                     <div className="p-4 border-b border-slate-200 bg-slate-50">
-                        <h4 className="text-sm font-bold text-slate-700">AI 判断</h4>
+                        <h4 className="text-sm font-bold text-slate-700">AI 判断与对比</h4>
                     </div>
                     <div className="flex-1 overflow-y-auto p-6">
                         {currentConflict ? (
-                            <div className="space-y-4">
-                                <div>
-                                    <div className="text-xs uppercase text-slate-400 font-bold mb-1">AI 分类结果</div>
-                                    <div className="text-lg font-bold text-slate-800">{currentConflict.semanticRole}</div>
-                                </div>
-                                <div>
-                                    <div className="text-xs uppercase text-slate-400 font-bold mb-1">置信度</div>
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-48 bg-slate-200 rounded-full h-3">
-                                            <div
-                                                className="bg-blue-500 h-3 rounded-full"
-                                                style={{ width: `${currentConflict.confidence * 100}%` }}
-                                            ></div>
+                            <div className="space-y-6">
+                                {/* 对比展示 */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    {/* 规则判断 */}
+                                    <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                                        <div className="text-xs text-blue-600 font-bold mb-2 uppercase">规则判断</div>
+                                        {currentConflict.ruleJudgment ? (
+                                            <>
+                                                <div className="text-lg font-bold text-blue-700 mb-2">
+                                                    {currentConflict.ruleJudgment.ruleResult}
+                                                </div>
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <div className="flex-1 bg-blue-200 rounded-full h-2">
+                                                        <div
+                                                            className="bg-blue-500 h-2 rounded-full"
+                                                            style={{ width: `${(currentConflict.ruleJudgment.ruleConfidence || 0) * 100}%` }}
+                                                        ></div>
+                                                    </div>
+                                                    <span className="text-xs text-blue-600 font-medium">
+                                                        {Math.round((currentConflict.ruleJudgment.ruleConfidence || 0) * 100)}%
+                                                    </span>
+                                                </div>
+                                                <div className="text-xs text-blue-600 mt-2">
+                                                    基于 {currentConflict.ruleJudgment.rules.length} 条规则
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="text-sm text-slate-400">暂无规则判断</div>
+                                        )}
+                                    </div>
+                                    {/* AI判断 */}
+                                    <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                                        <div className="text-xs text-purple-600 font-bold mb-2 uppercase">AI 判断</div>
+                                        <div className="text-lg font-bold text-purple-700 mb-2">
+                                            {currentConflict.semanticRole}
                                         </div>
-                                        <span className="text-sm text-slate-600">{Math.round(currentConflict.confidence * 100)}%</span>
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <div className="flex-1 bg-purple-200 rounded-full h-2">
+                                                <div
+                                                    className="bg-purple-500 h-2 rounded-full"
+                                                    style={{ width: `${currentConflict.confidence * 100}%` }}
+                                                ></div>
+                                            </div>
+                                            <span className="text-xs text-purple-600 font-medium">
+                                                {Math.round(currentConflict.confidence * 100)}%
+                                            </span>
+                                        </div>
+                                        <div className="text-xs text-purple-600 mt-2">
+                                            基于 AI 语义分析
+                                        </div>
                                     </div>
                                 </div>
+                                
+                                {/* 原文引用 */}
                                 <div>
-                                    <div className="text-xs uppercase text-slate-400 font-bold mb-1">原文引用</div>
-                                    <div className="p-3 bg-slate-50 rounded border border-slate-200">
-                                        <div className="text-sm text-slate-700 mb-1">字段名：<code className="font-mono">{currentConflict.field}</code></div>
-                                        <div className="text-sm text-slate-700">表名：<code className="font-mono">{currentConflict.tableName}</code></div>
+                                    <div className="text-xs uppercase text-slate-400 font-bold mb-2">原文引用</div>
+                                    <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                                        <div className="space-y-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs text-slate-500 w-16">表名：</span>
+                                                <code className="flex-1 font-mono text-sm text-slate-700 bg-white px-2 py-1 rounded border border-slate-200">
+                                                    {currentConflict.tableName}
+                                                </code>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs text-slate-500 w-16">字段：</span>
+                                                <code className="flex-1 font-mono text-sm text-slate-700 bg-white px-2 py-1 rounded border border-slate-200">
+                                                    {currentConflict.field}
+                                                </code>
+                                            </div>
+                                            {currentConflict.objectSuggestion && (
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs text-slate-500 w-16">对象：</span>
+                                                    <span className="flex-1 text-sm text-slate-700 bg-white px-2 py-1 rounded border border-slate-200">
+                                                        {currentConflict.objectSuggestion.name}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
+                                
+                                {/* AI 推理说明 */}
                                 <div>
-                                    <div className="text-xs uppercase text-slate-400 font-bold mb-1">推理说明</div>
-                                    <div className="p-3 bg-blue-50 rounded border border-blue-200 text-sm text-slate-700">
-                                        <div className="mb-2">{currentConflict.aiExplanation}</div>
+                                    <div className="text-xs uppercase text-slate-400 font-bold mb-2">AI 推理说明</div>
+                                    <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                                        <div className="text-sm text-slate-700 mb-3 font-medium">{currentConflict.aiExplanation}</div>
                                         {currentConflict.aiJudgment && (
                                             <>
-                                                <div className="mt-3 pt-3 border-t border-blue-200">
-                                                    <div className="font-medium mb-1">详细分析：</div>
-                                                    <div className="text-xs leading-relaxed">{currentConflict.aiJudgment.detailedExplanation}</div>
+                                                <div className="pt-3 border-t border-purple-200">
+                                                    <div className="text-xs font-semibold text-purple-700 mb-2">详细分析：</div>
+                                                    <div className="text-xs text-slate-700 leading-relaxed mb-3">
+                                                        {currentConflict.aiJudgment.detailedExplanation}
+                                                    </div>
                                                 </div>
-                                                <div className="mt-3 pt-3 border-t border-blue-200">
-                                                    <div className="font-medium mb-1">推理依据：</div>
-                                                    <div className="text-xs leading-relaxed">{currentConflict.aiJudgment.reasoning}</div>
+                                                <div className="pt-3 border-t border-purple-200">
+                                                    <div className="text-xs font-semibold text-purple-700 mb-2">推理依据：</div>
+                                                    <div className="text-xs text-slate-700 leading-relaxed">
+                                                        {currentConflict.aiJudgment.reasoning}
+                                                    </div>
                                                 </div>
                                             </>
                                         )}
                                     </div>
                                 </div>
+                                
+                                {/* 规则详情（如果存在） */}
+                                {currentConflict.ruleJudgment && currentConflict.ruleJudgment.rules.length > 0 && (
+                                    <div>
+                                        <div className="text-xs uppercase text-slate-400 font-bold mb-2">规则详情</div>
+                                        <div className="space-y-2">
+                                            {currentConflict.ruleJudgment.rules.map((rule: any, idx: number) => (
+                                                <div key={idx} className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <span className="text-xs font-mono text-blue-600 font-medium">{rule.id}</span>
+                                                        <span className="text-xs text-slate-500">权重 {Math.round(rule.weight * 100)}%</span>
+                                                    </div>
+                                                    <div className="text-xs font-semibold text-slate-700 mb-1">{rule.name}</div>
+                                                    <div className="text-xs text-slate-600 leading-relaxed">{rule.reason}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="flex items-center justify-center h-full text-slate-400">
@@ -4892,41 +6595,171 @@ const ConflictExplanationTab = ({ results, selectedConflict, setSelectedConflict
                     <div className="flex-1 overflow-y-auto p-6 space-y-4">
                         {currentConflict ? (
                             <>
+                                {/* 推荐结果 */}
                                 <div>
-                                    <div className="text-xs uppercase text-slate-400 font-bold mb-2">推荐结果</div>
-                                    <div className="p-3 bg-emerald-50 border-2 border-emerald-300 rounded-lg">
-                                        <div className="font-bold text-emerald-700">{currentConflict.semanticRole}</div>
-                                        <div className="text-xs text-emerald-600 mt-1">基于 AI 判断（置信度较高）</div>
-                                    </div>
+                                    <div className="text-xs uppercase text-slate-400 font-bold mb-2">系统推荐</div>
+                                    {recommendedDecision === 'rule' && currentConflict.ruleJudgment ? (
+                                        <div className="p-3 bg-blue-50 border-2 border-blue-400 rounded-lg">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className="text-xs bg-blue-500 text-white px-2 py-0.5 rounded font-medium">推荐</span>
+                                                <span className="font-bold text-blue-700">{currentConflict.ruleJudgment.ruleResult}</span>
+                                            </div>
+                                            <div className="text-xs text-blue-600 mt-1">
+                                                规则置信度 ({Math.round((currentConflict.ruleJudgment.ruleConfidence || 0) * 100)}%) 
+                                                高于 AI ({Math.round(currentConflict.confidence * 100)}%)
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="p-3 bg-purple-50 border-2 border-purple-400 rounded-lg">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className="text-xs bg-purple-500 text-white px-2 py-0.5 rounded font-medium">推荐</span>
+                                                <span className="font-bold text-purple-700">{currentConflict.semanticRole}</span>
+                                            </div>
+                                            <div className="text-xs text-purple-600 mt-1">
+                                                AI 置信度 ({Math.round(currentConflict.confidence * 100)}%) 
+                                                {currentConflict.ruleJudgment 
+                                                    ? `高于规则 (${Math.round((currentConflict.ruleJudgment.ruleConfidence || 0) * 100)}%)`
+                                                    : '无规则判断'}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
+                                
+                                {/* 选择方案 */}
                                 <div>
                                     <div className="text-xs uppercase text-slate-400 font-bold mb-2">选择方案</div>
                                     <div className="space-y-2">
-                                        <button className="w-full p-3 text-left border-2 border-blue-300 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
-                                            <div className="font-medium text-sm text-slate-800">采用规则</div>
-                                            <div className="text-xs text-slate-500 mt-1">使用规则引擎的判断结果</div>
+                                        <button 
+                                            onClick={() => setSelectedDecision('rule')}
+                                            disabled={!currentConflict.ruleJudgment}
+                                            className={`w-full p-3 text-left border-2 rounded-lg transition-all ${
+                                                selectedDecision === 'rule'
+                                                    ? 'border-blue-500 bg-blue-100 shadow-sm'
+                                                    : 'border-blue-300 bg-blue-50 hover:bg-blue-100'
+                                            } ${!currentConflict.ruleJudgment ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        >
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                                                    selectedDecision === 'rule' ? 'border-blue-500 bg-blue-500' : 'border-blue-300'
+                                                }`}>
+                                                    {selectedDecision === 'rule' && <CheckCircle size={12} className="text-white" />}
+                                                </div>
+                                                <span className="font-medium text-sm text-slate-800">采用规则</span>
+                                            </div>
+                                            <div className="text-xs text-slate-500 ml-6">
+                                                {currentConflict.ruleJudgment 
+                                                    ? `使用规则判断: ${currentConflict.ruleJudgment.ruleResult} (${Math.round((currentConflict.ruleJudgment.ruleConfidence || 0) * 100)}%)`
+                                                    : '暂无规则判断'}
+                                            </div>
                                         </button>
-                                        <button className="w-full p-3 text-left border-2 border-emerald-300 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors">
-                                            <div className="font-medium text-sm text-slate-800">采用 AI</div>
-                                            <div className="text-xs text-slate-500 mt-1">使用 AI 的判断结果（推荐）</div>
+                                        <button 
+                                            onClick={() => setSelectedDecision('ai')}
+                                            className={`w-full p-3 text-left border-2 rounded-lg transition-all ${
+                                                selectedDecision === 'ai'
+                                                    ? 'border-purple-500 bg-purple-100 shadow-sm'
+                                                    : 'border-purple-300 bg-purple-50 hover:bg-purple-100'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                                                    selectedDecision === 'ai' ? 'border-purple-500 bg-purple-500' : 'border-purple-300'
+                                                }`}>
+                                                    {selectedDecision === 'ai' && <CheckCircle size={12} className="text-white" />}
+                                                </div>
+                                                <span className="font-medium text-sm text-slate-800">采用 AI</span>
+                                                {recommendedDecision === 'ai' && (
+                                                    <span className="text-xs bg-purple-500 text-white px-1.5 py-0.5 rounded">推荐</span>
+                                                )}
+                                            </div>
+                                            <div className="text-xs text-slate-500 ml-6">
+                                                使用 AI 判断: {currentConflict.semanticRole} ({Math.round(currentConflict.confidence * 100)}%)
+                                            </div>
                                         </button>
-                                        <button className="w-full p-3 text-left border-2 border-slate-300 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-                                            <div className="font-medium text-sm text-slate-800">手动指定</div>
-                                            <div className="text-xs text-slate-500 mt-1">自定义语义角色</div>
+                                        <button 
+                                            onClick={() => setSelectedDecision('manual')}
+                                            className={`w-full p-3 text-left border-2 rounded-lg transition-all ${
+                                                selectedDecision === 'manual'
+                                                    ? 'border-slate-500 bg-slate-100 shadow-sm'
+                                                    : 'border-slate-300 bg-slate-50 hover:bg-slate-100'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                                                    selectedDecision === 'manual' ? 'border-slate-500 bg-slate-500' : 'border-slate-300'
+                                                }`}>
+                                                    {selectedDecision === 'manual' && <CheckCircle size={12} className="text-white" />}
+                                                </div>
+                                                <span className="font-medium text-sm text-slate-800">手动指定</span>
+                                            </div>
+                                            <div className="text-xs text-slate-500 ml-6">自定义语义角色</div>
                                         </button>
                                     </div>
                                 </div>
+                                
+                                {/* 手动指定输入 */}
+                                {selectedDecision === 'manual' && (
+                                    <div>
+                                        <div className="text-xs uppercase text-slate-400 font-bold mb-2">自定义语义角色</div>
+                                        <input
+                                            type="text"
+                                            value={manualSemanticRole}
+                                            onChange={(e) => setManualSemanticRole(e.target.value)}
+                                            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                                            placeholder="例如：支付行为、状态对象等"
+                                        />
+                                        <div className="text-xs text-slate-400 mt-1">
+                                            请填写合适的语义角色名称
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* 决策说明 */}
                                 <div>
-                                    <div className="text-xs uppercase text-slate-400 font-bold mb-2">决策说明</div>
+                                    <div className="text-xs uppercase text-slate-400 font-bold mb-2">决策说明（可选）</div>
                                     <textarea
-                                        className="w-full p-3 border border-slate-300 rounded-lg text-sm resize-none"
+                                        value={decisionNote}
+                                        onChange={(e) => setDecisionNote(e.target.value)}
+                                        className="w-full p-3 border border-slate-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-slate-400"
                                         rows={3}
-                                        placeholder="可选：填写决策依据..."
+                                        placeholder="填写决策依据、备注信息等..."
                                     ></textarea>
                                 </div>
-                                <button className="w-full py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700">
+                                
+                                {/* 确认按钮 */}
+                                <button 
+                                    onClick={handleConfirmDecision}
+                                    disabled={!selectedDecision || (selectedDecision === 'manual' && !manualSemanticRole.trim())}
+                                    className={`w-full py-2.5 text-white text-sm font-medium rounded-lg transition-all ${
+                                        selectedDecision && (selectedDecision !== 'manual' || manualSemanticRole.trim())
+                                            ? 'bg-emerald-600 hover:bg-emerald-700 shadow-sm hover:shadow'
+                                            : 'bg-slate-300 cursor-not-allowed'
+                                    }`}
+                                >
                                     确认决策
                                 </button>
+                                
+                                {/* 已决策历史（如果有） */}
+                                {decisionHistory[`${currentConflict.tableId}_${currentConflict.field}`] && (
+                                    <div className="pt-4 border-t border-slate-200">
+                                        <div className="text-xs uppercase text-slate-400 font-bold mb-2">决策历史</div>
+                                        <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                                            <div className="text-xs text-green-700">
+                                                <div className="font-medium mb-1">已决策: {decisionHistory[`${currentConflict.tableId}_${currentConflict.field}`].finalRole}</div>
+                                                <div className="text-slate-600">
+                                                    方案: {
+                                                        decisionHistory[`${currentConflict.tableId}_${currentConflict.field}`].decision === 'rule' ? '采用规则' :
+                                                        decisionHistory[`${currentConflict.tableId}_${currentConflict.field}`].decision === 'ai' ? '采用AI' : '手动指定'
+                                                    }
+                                                </div>
+                                                {decisionHistory[`${currentConflict.tableId}_${currentConflict.field}`].note && (
+                                                    <div className="text-slate-600 mt-1">
+                                                        说明: {decisionHistory[`${currentConflict.tableId}_${currentConflict.field}`].note}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </>
                         ) : (
                             <div className="flex items-center justify-center h-full text-slate-400 text-sm">
@@ -6945,6 +8778,13 @@ const SemanticLayerApp = () => {
                 return <ConflictDetectionView setActiveModule={setActiveModule} />;
             case 'td_scenario': 
                 return <ScenarioOrchestrationView businessObjects={businessObjects} />;
+            case 'asset_center':
+                return <AssetCenterView 
+                    businessObjects={businessObjects}
+                    dataSources={dataSources}
+                    scanAssets={scanAssets}
+                    setScanAssets={setScanAssets}
+                />;
             case 'catalog': 
                 return <DataCatalogView />;
             case 'lineage': 
@@ -6953,6 +8793,10 @@ const SemanticLayerApp = () => {
                 return <ApiGatewayView />;
             case 'ee_cache': 
                 return <CacheStrategyView />;
+            case 'term_management':
+                return <TermManagementView />;
+            case 'tag_management':
+                return <TagManagementView />;
             case 'dashboard': return <PlaceholderView title="Dashboard" />;
             default: return <PlaceholderView title="Module" />;
         }
