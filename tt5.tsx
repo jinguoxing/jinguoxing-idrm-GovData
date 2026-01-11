@@ -853,6 +853,105 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
     const [showGenerationWizard, setShowGenerationWizard] = useState(false);
     const [wizardTable, setWizardTable] = useState<any>(null);
     const [wizardSemantic, setWizardSemantic] = useState<any>(null);
+    const [isQuickGenerating, setIsQuickGenerating] = useState(false);
+    
+    // 将table和semantic转换为identificationResult格式
+    const convertToIdentificationResult = (table: any, semantic: any) => {
+        return {
+            id: table.id || `IR_${Date.now()}`,
+            tableName: table.name,
+            tableComment: table.comment || '',
+            sourceId: table.sourceId || '',
+            objectSuggestion: {
+                name: semantic.businessName || table.comment || table.name,
+                confidence: semantic.confidence || 0,
+                risk: semantic.riskLevel || 'low',
+                status: 'pending',
+                source: 'AI + 规则'
+            },
+            fieldSuggestions: semantic.coreFields?.map((cf: any) => ({
+                field: cf.field,
+                semanticRole: cf.semanticType || '属性',
+                aiExplanation: cf.reason || '',
+                confidence: semantic.confidence || 0.8,
+                status: 'accepted'
+            })) || []
+        };
+    };
+
+    // 字段名转驼峰
+    const convertToCamelCase = (fieldName: string) => {
+        const parts = fieldName.split('_');
+        if (parts.length === 1) return fieldName;
+        return parts[0] + parts.slice(1).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+    };
+
+    // 一键生成业务对象（跳过向导，直接生成）
+    const handleQuickGenerate = async (table: any, semantic: any) => {
+        if (!table || !semantic) return;
+        
+        setIsQuickGenerating(true);
+        
+        // 快速生成配置（使用默认值）
+        const businessName = (semantic.businessName || table.comment || table.name).replace(/（业务视图）/, '');
+        const tableName = table.name.replace(/^t_/, '');
+        const code = `biz_${tableName}`;
+        
+        // 字段映射
+        const fieldMappings = (semantic.coreFields || [])
+            .filter((cf: any) => {
+                const fieldLower = cf.field.toLowerCase();
+                if (fieldLower.includes('create') || fieldLower.includes('update')) {
+                    return false; // 跳过时间戳字段
+                }
+                return true;
+            })
+            .map((cf: any) => ({
+                field: cf.field,
+                businessName: convertToCamelCase(cf.field),
+                businessType: 'String', // 默认类型
+                businessDesc: cf.reason || ''
+            }));
+
+        // 模拟生成过程
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        // 创建业务对象
+        const newBO = {
+            id: `BO_${Date.now()}`,
+            name: businessName,
+            code: code,
+            domain: semantic.clusterSuggestion || 'AI生成',
+            owner: '待认领',
+            status: 'draft',
+            version: 'v1.0',
+            description: semantic.description || `从表 ${table.name} 生成的业务对象`,
+            sourceTables: [table.name],
+            fields: fieldMappings.map((f: any, i: number) => ({
+                id: `f_${i}`,
+                name: f.businessName,
+                code: f.field,
+                type: f.businessType,
+                length: '-',
+                required: false,
+                desc: f.businessDesc
+            }))
+        };
+        
+        setBusinessObjects([...businessObjects, newBO]);
+        setIsQuickGenerating(false);
+        
+        // 提示用户
+        const result = confirm(`业务对象"${newBO.name}"生成成功！\n\n是否查看详情？`);
+        if (result) {
+            setActiveModule('td_modeling');
+            // 通过事件传递新创建的BO ID
+            setTimeout(() => {
+                const event = new CustomEvent('selectBusinessObject', { detail: { id: newBO.id } });
+                window.dispatchEvent(event);
+            }, 100);
+        }
+    };
     
     // Helper to get cluster name
     const getSimpleClusterName = (tableName: string) => {
@@ -1814,27 +1913,84 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                                                                     )}
                                                                     
                                                                     {!editMode && (
-                                                                        <div className="flex gap-2">
+                                                                        <div className="space-y-2">
+                                                                            {/* 根据置信度显示不同的按钮 */}
+                                                                            {(() => {
+                                                                                const confidence = semantic.confidence || 0;
+                                                                                if (confidence > 0.9) {
+                                                                                    // 高置信度：显示"一键生成"按钮（绿色，推荐）
+                                                                                    return (
+                                                                                        <button 
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                handleQuickGenerate(table, semantic);
+                                                                                            }}
+                                                                                            className="w-full py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-emerald-700 flex items-center justify-center gap-2"
+                                                                                        >
+                                                                                            <Zap size={14}/> 一键生成业务对象
+                                                                                        </button>
+                                                                                    );
+                                                                                } else if (confidence >= 0.7) {
+                                                                                    // 中置信度：显示"快速生成"按钮（蓝色）
+                                                                                    return (
+                                                                                        <button 
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                setShowGenerationWizard(true);
+                                                                                                setWizardTable(table);
+                                                                                                setWizardSemantic(semantic);
+                                                                                            }}
+                                                                                            className="w-full py-2 bg-blue-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-blue-700 flex items-center justify-center gap-2"
+                                                                                        >
+                                                                                            <Zap size={14}/> 快速生成业务对象
+                                                                                        </button>
+                                                                                    );
+                                                                                } else {
+                                                                                    // 低置信度：显示"生成业务对象向导"按钮（紫色）
+                                                                                    return (
+                                                                                        <button 
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                setShowGenerationWizard(true);
+                                                                                                setWizardTable(table);
+                                                                                                setWizardSemantic(semantic);
+                                                                                            }}
+                                                                                            className="w-full py-2 bg-purple-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-purple-700 flex items-center justify-center gap-2"
+                                                                                        >
+                                                                                            <Box size={14}/> 生成业务对象向导
+                                                                                        </button>
+                                                                                    );
+                                                                                }
+                                                                            })()}
+                                                                            {/* 提示信息 */}
+                                                                            {(() => {
+                                                                                const confidence = semantic.confidence || 0;
+                                                                                if (confidence > 0.9) {
+                                                                                    return (
+                                                                                        <p className="text-[10px] text-emerald-600 text-center">置信度较高，可直接生成</p>
+                                                                                    );
+                                                                                } else if (confidence >= 0.7) {
+                                                                                    return (
+                                                                                        <p className="text-[10px] text-blue-600 text-center">置信度中等，建议快速生成</p>
+                                                                                    );
+                                                                                } else {
+                                                                                    return (
+                                                                                        <p className="text-[10px] text-slate-500 text-center">置信度较低，建议使用向导</p>
+                                                                                    );
+                                                                                }
+                                                                            })()}
+                                                                            {/* 辅助按钮 */}
+                                                                            <div className="flex gap-2">
                                                                         <button 
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                setShowGenerationWizard(true);
-                                                                                setWizardTable(table);
-                                                                                setWizardSemantic(semantic);
+                                                                            onClick={() => {
+                                                                                        setActiveModule('bu_identification');
                                                                             }}
-                                                                                className="flex-1 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-purple-700 flex items-center justify-center gap-2"
+                                                                                    className="flex-1 px-3 py-2 bg-emerald-600 text-white text-xs font-medium rounded-lg shadow-sm hover:bg-emerald-700 flex items-center justify-center gap-1"
+                                                                                    title="进入识别结果确认"
                                                                         >
-                                                                            <Box size={14}/> 生成业务对象
+                                                                                    <FileCheck size={14} />
                                                                         </button>
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setActiveModule('bu_identification');
-                                                                                }}
-                                                                                className="px-3 py-2 bg-emerald-600 text-white text-xs font-medium rounded-lg shadow-sm hover:bg-emerald-700 flex items-center gap-1"
-                                                                                title="进入识别结果确认"
-                                                                            >
-                                                                                <FileCheck size={14} />
-                                                                            </button>
+                                                                            </div>
                                                                         </div>
                                                                     )}
                                                                 </div>
@@ -1943,6 +2099,36 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
                     </div>
                 </div>
             )}
+            
+            {/* 生成业务对象向导 */}
+            {showGenerationWizard && wizardTable && wizardSemantic && (
+                <GenerateBusinessObjectWizard
+                    isOpen={showGenerationWizard}
+                    onClose={() => {
+                        setShowGenerationWizard(false);
+                        setWizardTable(null);
+                        setWizardSemantic(null);
+                    }}
+                    identificationResult={convertToIdentificationResult(wizardTable, wizardSemantic)}
+                    dataSource={dataSources.find((ds: any) => ds.id === wizardTable.sourceId)}
+                    businessObjects={businessObjects}
+                    setBusinessObjects={setBusinessObjects}
+                    setActiveModule={setActiveModule}
+                />
+            )}
+            
+            {/* 一键生成加载提示 */}
+            {isQuickGenerating && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md">
+                        <div className="text-center">
+                            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-emerald-500 border-t-transparent mb-4"></div>
+                            <h4 className="text-lg font-bold text-slate-800 mb-2">正在一键生成业务对象...</h4>
+                            <p className="text-sm text-slate-500">请稍候</p>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -1951,8 +2137,24 @@ const DataSemanticUnderstandingView = ({ setActiveModule, businessObjects, setBu
 const BusinessModelingView = ({ businessObjects, setBusinessObjects }: any) => {
     const [selectedId, setSelectedId] = useState(businessObjects[0]?.id);
     const [activeTab, setActiveTab] = useState('structure');
+    const [newlyCreatedId, setNewlyCreatedId] = useState<string | null>(null);
 
     const activeObject = businessObjects.find((bo: any) => bo.id === selectedId) || businessObjects[0];
+
+    // 监听业务对象选择事件（用于从生成向导跳转过来时自动选中）
+    useEffect(() => {
+        const handleSelectBusinessObject = (e: any) => {
+            const id = e.detail?.id;
+            if (id && businessObjects.find((bo: any) => bo.id === id)) {
+                setSelectedId(id);
+                setNewlyCreatedId(id);
+                // 3秒后移除"新创建"标识
+                setTimeout(() => setNewlyCreatedId(null), 3000);
+            }
+        };
+        window.addEventListener('selectBusinessObject', handleSelectBusinessObject);
+        return () => window.removeEventListener('selectBusinessObject', handleSelectBusinessObject);
+    }, [businessObjects]);
 
     const handleDeleteField = (fieldId: string) => {
         if (!confirm('确定删除该属性吗？')) return;
@@ -2001,6 +2203,13 @@ const BusinessModelingView = ({ businessObjects, setBusinessObjects }: any) => {
                                         : 'hover:bg-slate-50 border-transparent hover:border-slate-100'
                                     }`}
                             >
+                                {newlyCreatedId === bo.id && (
+                                    <div className="mb-2">
+                                        <span className="inline-block px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded animate-pulse">
+                                            新创建
+                                        </span>
+                                    </div>
+                                )}
                                 <div className="flex justify-between items-start mb-1">
                                     <span className={`font-bold text-sm ${selectedId === bo.id ? 'text-blue-800' : 'text-slate-700'}`}>{bo.name}</span>
                                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${bo.status === 'published' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
@@ -5010,8 +5219,547 @@ const TagManagementView = () => {
     );
 };
 
+// ==========================================
+// 生成业务对象向导组件 (3步向导)
+// ==========================================
+const GenerateBusinessObjectWizard = ({ 
+    isOpen, 
+    onClose, 
+    identificationResult, 
+    dataSource,
+    businessObjects,
+    setBusinessObjects,
+    setActiveModule 
+}: any) => {
+    const [step, setStep] = useState(1);
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [generationProgress, setGenerationProgress] = useState<{ step: string; status: 'pending' | 'processing' | 'done' }[]>([]);
+    const [generatedBOId, setGeneratedBOId] = useState<string | null>(null);
+    
+    // 步骤1：基本信息
+    const [name, setName] = useState('');
+    const [code, setCode] = useState('');
+    const [description, setDescription] = useState('');
+    const [nameError, setNameError] = useState('');
+    const [codeError, setCodeError] = useState('');
+    
+    // 步骤2：字段映射
+    const [fieldMappings, setFieldMappings] = useState<any[]>([]);
+    
+    // 步骤3：生成选项
+    const [options, setOptions] = useState({
+        publishImmediately: false,
+        createMapping: true,
+        sendNotification: false,
+        domain: ''
+    });
+
+    // 初始化数据
+    useEffect(() => {
+        if (isOpen && identificationResult) {
+            // 步骤1：基本信息初始化
+            const businessName = identificationResult.objectSuggestion?.name || identificationResult.tableComment || identificationResult.tableName;
+            setName(businessName.replace(/（业务视图）/, ''));
+            const tableName = identificationResult.tableName.replace(/^t_/, '');
+            setCode(`biz_${tableName}`);
+            setDescription(identificationResult.tableComment || `从表 ${identificationResult.tableName} 生成的业务对象`);
+            
+            // 步骤2：字段映射初始化
+            const mappings = identificationResult.fieldSuggestions
+                .filter((f: any) => {
+                    // 跳过时间戳字段（create_time, update_time等）
+                    const fieldLower = f.field.toLowerCase();
+                    if (f.semanticRole === '时间戳') {
+                        if (fieldLower.includes('create') || fieldLower.includes('update')) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .map((f: any) => ({
+                    field: f.field,
+                    semanticRole: f.semanticRole,
+                    aiExplanation: f.aiExplanation,
+                    confidence: f.confidence,
+                    selected: true,
+                    businessName: convertToCamelCase(f.field),
+                    businessType: convertPhysicalTypeToBusinessType('varchar'), // 简化处理
+                    businessDesc: f.aiExplanation || ''
+                }));
+            setFieldMappings(mappings);
+        }
+    }, [isOpen, identificationResult]);
+
+    // 字段名转驼峰
+    const convertToCamelCase = (fieldName: string) => {
+        const parts = fieldName.split('_');
+        if (parts.length === 1) return fieldName;
+        return parts[0] + parts.slice(1).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+    };
+
+    // 物理类型转业务类型
+    const convertPhysicalTypeToBusinessType = (physicalType: string) => {
+        const typeMap: Record<string, string> = {
+            'varchar': 'String',
+            'char': 'String',
+            'text': 'String',
+            'int': 'Integer',
+            'bigint': 'Long',
+            'decimal': 'Decimal',
+            'double': 'Decimal',
+            'float': 'Decimal',
+            'date': 'Date',
+            'datetime': 'DateTime',
+            'timestamp': 'DateTime',
+            'boolean': 'Boolean'
+        };
+        const lower = physicalType.toLowerCase();
+        return typeMap[lower] || 'String';
+    };
+
+    // 验证步骤1
+    const validateStep1 = () => {
+        let valid = true;
+        if (!name.trim()) {
+            setNameError('业务对象名称不能为空');
+            valid = false;
+        } else if (businessObjects.some((bo: any) => bo.name === name && bo.id !== generatedBOId)) {
+            setNameError('业务对象名称已存在');
+            valid = false;
+        } else {
+            setNameError('');
+        }
+        
+        if (!code.trim()) {
+            setCodeError('业务对象编码不能为空');
+            valid = false;
+        } else if (!/^[a-z][a-z0-9_]*$/.test(code)) {
+            setCodeError('编码只能包含小写字母、数字和下划线，且必须以字母开头');
+            valid = false;
+        } else if (businessObjects.some((bo: any) => bo.code === code && bo.id !== generatedBOId)) {
+            setCodeError('业务对象编码已存在');
+            valid = false;
+        } else {
+            setCodeError('');
+        }
+        
+        return valid;
+    };
+
+    // 下一步
+    const handleNext = () => {
+        if (step === 1) {
+            if (!validateStep1()) return;
+            setStep(2);
+        } else if (step === 2) {
+            if (fieldMappings.filter((f: any) => f.selected).length === 0) {
+                alert('至少需要选择一个字段');
+                return;
+            }
+            setStep(3);
+        }
+    };
+
+    // 上一步
+    const handlePrev = () => {
+        if (step > 1) {
+            setStep(step - 1);
+        }
+    };
+
+    // 确认生成
+    const handleConfirm = async () => {
+        if (!validateStep1()) return;
+        
+        setIsGenerating(true);
+        setGenerationProgress([
+            { step: '创建业务对象定义', status: 'processing' },
+            { step: '创建业务属性', status: 'pending' },
+            { step: '建立字段映射关系', status: 'pending' },
+            { step: '创建数据血缘', status: 'pending' },
+            { step: '记录操作日志', status: 'pending' }
+        ]);
+
+        // 模拟生成过程
+        const selectedFields = fieldMappings.filter((f: any) => f.selected);
+        
+        // 步骤1：创建业务对象定义
+        await new Promise(resolve => setTimeout(resolve, 500));
+        setGenerationProgress(prev => prev.map((p, i) => i === 0 ? { ...p, status: 'done' } : i === 1 ? { ...p, status: 'processing' } : p));
+        
+        // 步骤2：创建业务属性
+        await new Promise(resolve => setTimeout(resolve, 600));
+        setGenerationProgress(prev => prev.map((p, i) => i === 1 ? { ...p, status: 'done' } : i === 2 ? { ...p, status: 'processing' } : p));
+        
+        // 步骤3：建立字段映射关系
+        await new Promise(resolve => setTimeout(resolve, 500));
+        setGenerationProgress(prev => prev.map((p, i) => i === 2 ? { ...p, status: 'done' } : i === 3 ? { ...p, status: 'processing' } : p));
+        
+        // 步骤4：创建数据血缘
+        await new Promise(resolve => setTimeout(resolve, 400));
+        setGenerationProgress(prev => prev.map((p, i) => i === 3 ? { ...p, status: 'done' } : i === 4 ? { ...p, status: 'processing' } : p));
+        
+        // 步骤5：记录操作日志
+        await new Promise(resolve => setTimeout(resolve, 300));
+        setGenerationProgress(prev => prev.map((p, i) => i === 4 ? { ...p, status: 'done' } : p));
+
+        // 创建业务对象
+        const newBO = {
+            id: `BO_${Date.now()}`,
+            name: name,
+            code: code,
+            domain: options.domain || 'AI生成',
+            owner: '待认领',
+            status: options.publishImmediately ? 'published' : 'draft',
+            version: 'v1.0',
+            description: description,
+            sourceTables: [identificationResult.tableName],
+            fields: selectedFields.map((f: any, i: number) => ({
+                id: `f_${i}`,
+                name: f.businessName,
+                code: f.field,
+                type: f.businessType,
+                length: '-',
+                required: f.semanticRole === '标识',
+                desc: f.businessDesc
+            }))
+        };
+        
+        setBusinessObjects([...businessObjects, newBO]);
+        setGeneratedBOId(newBO.id);
+        
+        await new Promise(resolve => setTimeout(resolve, 300));
+        setIsGenerating(false);
+    };
+
+    // 查看详情（跳转到业务对象建模页）
+    const handleViewDetail = () => {
+        setActiveModule('td_modeling');
+        // 通过事件或全局状态传递生成的BO ID，让建模页自动选中
+        setTimeout(() => {
+            const event = new CustomEvent('selectBusinessObject', { detail: { id: generatedBOId } });
+            window.dispatchEvent(event);
+        }, 100);
+        onClose();
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+            <div className="bg-white rounded-xl shadow-2xl w-[90vw] max-w-3xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                {/* 头部 */}
+                <div className="p-6 border-b border-slate-200 flex-shrink-0">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                            <Box className="text-purple-500" size={24} />
+                            从识别结果生成业务对象
+                        </h3>
+                        <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+                            <X size={24} />
+                        </button>
+                    </div>
+                    {/* 步骤指示器 */}
+                    <div className="flex items-center gap-2 mt-4">
+                        {[1, 2, 3].map((s) => (
+                            <React.Fragment key={s}>
+                                <div className={`flex items-center gap-2 ${step >= s ? 'text-purple-600' : 'text-slate-400'}`}>
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
+                                        step > s ? 'bg-purple-600 border-purple-600 text-white' :
+                                        step === s ? 'border-purple-600 bg-purple-50 text-purple-600' :
+                                        'border-slate-300 bg-white text-slate-400'
+                                    }`}>
+                                        {step > s ? <Check size={18} /> : s}
+                                    </div>
+                                    <span className="text-sm font-medium">
+                                        {s === 1 ? '基本信息' : s === 2 ? '字段映射' : '生成选项'}
+                                    </span>
+                                </div>
+                                {s < 3 && <ChevronRight size={16} className="text-slate-300" />}
+                            </React.Fragment>
+                        ))}
+                    </div>
+                </div>
+
+                {/* 内容区域 */}
+                <div className="flex-1 overflow-y-auto p-6">
+                    {isGenerating ? (
+                        // 生成中状态
+                        <div className="space-y-4">
+                            <div className="text-center py-8">
+                                <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-purple-500 border-t-transparent mb-4"></div>
+                                <h4 className="text-lg font-bold text-slate-800 mb-2">正在生成业务对象...</h4>
+                                <p className="text-sm text-slate-500">预计剩余时间: {Math.max(0, (generationProgress.filter(p => p.status !== 'done').length - 1) * 0.5).toFixed(1)}秒</p>
+                            </div>
+                            <div className="space-y-2">
+                                {generationProgress.map((p, i) => (
+                                    <div key={i} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                                        {p.status === 'done' && <CheckCircle className="text-emerald-500" size={20} />}
+                                        {p.status === 'processing' && <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>}
+                                        {p.status === 'pending' && <div className="w-5 h-5 border-2 border-slate-300 rounded-full"></div>}
+                                        <span className={`text-sm ${p.status === 'done' ? 'text-slate-600' : p.status === 'processing' ? 'text-purple-600 font-medium' : 'text-slate-400'}`}>
+                                            {p.step}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ) : generatedBOId ? (
+                        // 生成成功状态
+                        <div className="text-center py-8">
+                            <CheckCircle className="text-emerald-500 mx-auto mb-4" size={64} />
+                            <h4 className="text-xl font-bold text-slate-800 mb-2">业务对象生成成功！</h4>
+                            <div className="bg-slate-50 rounded-lg p-4 mt-4 text-left max-w-md mx-auto space-y-2">
+                                <div className="flex justify-between">
+                                    <span className="text-sm text-slate-600">业务对象:</span>
+                                    <span className="text-sm font-medium text-slate-800">{name}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-sm text-slate-600">业务属性:</span>
+                                    <span className="text-sm font-medium text-slate-800">{fieldMappings.filter((f: any) => f.selected).length} 个</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-sm text-slate-600">字段映射:</span>
+                                    <span className="text-sm font-medium text-slate-800">{fieldMappings.filter((f: any) => f.selected).length} 条</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-sm text-slate-600">数据血缘:</span>
+                                    <span className="text-sm font-medium text-emerald-600">已建立</span>
+                                </div>
+                            </div>
+                            <div className="flex gap-3 justify-center mt-6">
+                                <button
+                                    onClick={handleViewDetail}
+                                    className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
+                                >
+                                    查看详情
+                                </button>
+                                <button
+                                    onClick={onClose}
+                                    className="px-6 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 font-medium"
+                                >
+                                    关闭
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        // 步骤内容
+                        <>
+                            {step === 1 && (
+                                <div className="space-y-4">
+                                    <h4 className="text-lg font-bold text-slate-800 mb-4">步骤1：基本信息确认</h4>
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">业务对象名称 *</label>
+                                            <input
+                                                type="text"
+                                                value={name}
+                                                onChange={(e) => { setName(e.target.value); setNameError(''); }}
+                                                className={`w-full px-3 py-2 border rounded-lg ${nameError ? 'border-red-300' : 'border-slate-300'}`}
+                                                placeholder="请输入业务对象名称"
+                                            />
+                                            {nameError && <p className="text-xs text-red-500 mt-1">{nameError}</p>}
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">业务对象编码 *</label>
+                                            <input
+                                                type="text"
+                                                value={code}
+                                                onChange={(e) => { setCode(e.target.value.toLowerCase()); setCodeError(''); }}
+                                                className={`w-full px-3 py-2 border rounded-lg font-mono text-sm ${codeError ? 'border-red-300' : 'border-slate-300'}`}
+                                                placeholder="biz_xxx"
+                                            />
+                                            {codeError && <p className="text-xs text-red-500 mt-1">{codeError}</p>}
+                                            <p className="text-xs text-slate-500 mt-1">编码只能包含小写字母、数字和下划线，且必须以字母开头</p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">业务描述</label>
+                                            <textarea
+                                                value={description}
+                                                onChange={(e) => setDescription(e.target.value)}
+                                                rows={3}
+                                                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                                                placeholder="请输入业务描述"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">来源表</label>
+                                            <input
+                                                type="text"
+                                                value={identificationResult?.tableName || ''}
+                                                disabled
+                                                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50 text-slate-600"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {step === 2 && (
+                                <div className="space-y-4">
+                                    <h4 className="text-lg font-bold text-slate-800 mb-4">步骤2：字段映射预览</h4>
+                                    <div className="text-sm text-slate-600 mb-3">
+                                        已选择: <span className="font-medium text-purple-600">{fieldMappings.filter((f: any) => f.selected).length}</span> 个字段
+                                    </div>
+                                    <div className="border border-slate-200 rounded-lg overflow-hidden">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-slate-50">
+                                                <tr>
+                                                    <th className="px-3 py-2 text-left w-12">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={fieldMappings.every((f: any) => f.selected)}
+                                                            onChange={(e) => setFieldMappings(fieldMappings.map((f: any) => ({ ...f, selected: e.target.checked })))}
+                                                            className="w-4 h-4"
+                                                        />
+                                                    </th>
+                                                    <th className="px-3 py-2 text-left">物理字段</th>
+                                                    <th className="px-3 py-2 text-left">语义角色</th>
+                                                    <th className="px-3 py-2 text-left">业务属性名</th>
+                                                    <th className="px-3 py-2 text-left">业务类型</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {fieldMappings.map((mapping: any, idx: number) => (
+                                                    <tr key={idx} className={`border-t border-slate-100 ${!mapping.selected ? 'opacity-50' : ''}`}>
+                                                        <td className="px-3 py-2">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={mapping.selected}
+                                                                onChange={(e) => {
+                                                                    const newMappings = [...fieldMappings];
+                                                                    newMappings[idx].selected = e.target.checked;
+                                                                    setFieldMappings(newMappings);
+                                                                }}
+                                                                className="w-4 h-4"
+                                                            />
+                                                        </td>
+                                                        <td className="px-3 py-2 font-mono text-slate-700">{mapping.field}</td>
+                                                        <td className="px-3 py-2">
+                                                            <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">
+                                                                {mapping.semanticRole}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-3 py-2">
+                                                            <input
+                                                                type="text"
+                                                                value={mapping.businessName}
+                                                                onChange={(e) => {
+                                                                    const newMappings = [...fieldMappings];
+                                                                    newMappings[idx].businessName = e.target.value;
+                                                                    setFieldMappings(newMappings);
+                                                                }}
+                                                                className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
+                                                            />
+                                                        </td>
+                                                        <td className="px-3 py-2">
+                                                            <select
+                                                                value={mapping.businessType}
+                                                                onChange={(e) => {
+                                                                    const newMappings = [...fieldMappings];
+                                                                    newMappings[idx].businessType = e.target.value;
+                                                                    setFieldMappings(newMappings);
+                                                                }}
+                                                                className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
+                                                            >
+                                                                <option value="String">String</option>
+                                                                <option value="Integer">Integer</option>
+                                                                <option value="Long">Long</option>
+                                                                <option value="Decimal">Decimal</option>
+                                                                <option value="Date">Date</option>
+                                                                <option value="DateTime">DateTime</option>
+                                                                <option value="Boolean">Boolean</option>
+                                                            </select>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {step === 3 && (
+                                <div className="space-y-4">
+                                    <h4 className="text-lg font-bold text-slate-800 mb-4">步骤3：生成选项</h4>
+                                    <div className="space-y-4">
+                                        <label className="flex items-start gap-3 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={options.publishImmediately}
+                                                onChange={(e) => setOptions({ ...options, publishImmediately: e.target.checked })}
+                                                className="mt-1 w-4 h-4"
+                                            />
+                                            <div>
+                                                <div className="font-medium text-slate-700">立即发布业务对象</div>
+                                                <div className="text-xs text-slate-500 mt-1">生成后状态为"已发布"，否则为"草稿"</div>
+                                            </div>
+                                        </label>
+                                        <label className="flex items-start gap-3 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={options.createMapping}
+                                                onChange={(e) => setOptions({ ...options, createMapping: e.target.checked })}
+                                                className="mt-1 w-4 h-4"
+                                            />
+                                            <div>
+                                                <div className="font-medium text-slate-700">创建物理表到业务对象的映射关系</div>
+                                                <div className="text-xs text-slate-500 mt-1">在映射工作台中自动创建映射记录</div>
+                                            </div>
+                                        </label>
+                                        <label className="flex items-start gap-3 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={options.sendNotification}
+                                                onChange={(e) => setOptions({ ...options, sendNotification: e.target.checked })}
+                                                className="mt-1 w-4 h-4"
+                                            />
+                                            <div>
+                                                <div className="font-medium text-slate-700">发送通知给相关人员</div>
+                                                <div className="text-xs text-slate-500 mt-1">通知业务负责人新业务对象已创建</div>
+                                            </div>
+                                        </label>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">生成位置（业务域）</label>
+                                            <input
+                                                type="text"
+                                                value={options.domain}
+                                                onChange={(e) => setOptions({ ...options, domain: e.target.value })}
+                                                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                                                placeholder="可选，留空则在默认域"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                {/* 底部按钮 */}
+                {!isGenerating && !generatedBOId && (
+                    <div className="p-6 border-t border-slate-200 flex justify-between flex-shrink-0">
+                        <button
+                            onClick={step === 1 ? onClose : handlePrev}
+                            className="px-6 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium"
+                        >
+                            {step === 1 ? '取消' : '← 上一步'}
+                        </button>
+                        <button
+                            onClick={step === 3 ? handleConfirm : handleNext}
+                            className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
+                        >
+                            {step === 3 ? '确认生成' : '下一步 →'}
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 // --- 视图: 识别结果确认 (Bottom-up 识别模块) ---
-const IdentificationResultView = ({ setActiveModule, dataSources, scanAssets, setScanAssets }: any) => {
+const IdentificationResultView = ({ setActiveModule, dataSources, scanAssets, setScanAssets, businessObjects, setBusinessObjects }: any) => {
     const [activeTab, setActiveTab] = useState<'overview' | 'comparison' | 'batch' | 'conflict'>('overview');
     
     // 模拟识别结果数据
@@ -5275,6 +6023,10 @@ const IdentificationResultView = ({ setActiveModule, dataSources, scanAssets, se
     
     // 冲突解释相关状态
     const [selectedConflict, setSelectedConflict] = useState<string | null>(null);
+    
+    // 生成向导相关状态
+    const [showGenerationWizard, setShowGenerationWizard] = useState(false);
+    const [wizardResult, setWizardResult] = useState<any>(null);
 
     return (
         <div className="h-full flex flex-col bg-slate-50">
@@ -5352,6 +6104,10 @@ const IdentificationResultView = ({ setActiveModule, dataSources, scanAssets, se
                             if (conflictId) setSelectedConflict(conflictId);
                             setActiveTab('conflict');
                         }}
+                        onGenerateBusinessObject={(result: any) => {
+                            setWizardResult(result);
+                            setShowGenerationWizard(true);
+                        }}
                     />
                 )}
                 {activeTab === 'batch' && (
@@ -5362,6 +6118,10 @@ const IdentificationResultView = ({ setActiveModule, dataSources, scanAssets, se
                         setSelectedItems={setSelectedItems}
                         filter={filter}
                         setFilter={setFilter}
+                        onGenerateBusinessObject={(result: any) => {
+                            setWizardResult(result);
+                            setShowGenerationWizard(true);
+                        }}
                     />
                 )}
                 {activeTab === 'conflict' && (
@@ -5371,9 +6131,29 @@ const IdentificationResultView = ({ setActiveModule, dataSources, scanAssets, se
                         selectedConflict={selectedConflict}
                         setSelectedConflict={setSelectedConflict}
                         onNavigateToComparison={() => setActiveTab('comparison')}
+                        onGenerateBusinessObject={(result: any) => {
+                            setWizardResult(result);
+                            setShowGenerationWizard(true);
+                        }}
                     />
                 )}
             </div>
+            
+            {/* 生成业务对象向导 */}
+            {showGenerationWizard && wizardResult && (
+                <GenerateBusinessObjectWizard
+                    isOpen={showGenerationWizard}
+                    onClose={() => {
+                        setShowGenerationWizard(false);
+                        setWizardResult(null);
+                    }}
+                    identificationResult={wizardResult}
+                    dataSource={dataSources.find((ds: any) => ds.id === wizardResult.sourceId)}
+                    businessObjects={businessObjects}
+                    setBusinessObjects={setBusinessObjects}
+                    setActiveModule={setActiveModule}
+                />
+            )}
         </div>
     );
 };
@@ -5519,12 +6299,15 @@ const IdentificationOverviewTab = ({ results, onNavigateToComparison, onNavigate
 };
 
 // 子组件1: 识别结果对比页
-const IdentificationComparisonTab = ({ results, setResults, dataSources, onNavigateToBatch, onNavigateToConflict }: any) => {
+const IdentificationComparisonTab = ({ results, setResults, dataSources, onNavigateToBatch, onNavigateToConflict, onGenerateBusinessObject }: any) => {
     const [selectedTableId, setSelectedTableId] = useState<string | null>(results[0]?.id || null);
     const [expandedFields, setExpandedFields] = useState<Set<string>>(new Set());
     const [highlightedField, setHighlightedField] = useState<string | null>(null);
     const [filter, setFilter] = useState({ needsConfirm: false, hasConflict: false, sortBy: 'confidence' });
     const [showWhyExplanation, setShowWhyExplanation] = useState<Record<string, boolean>>({});
+    const [showCandidateSuggestions, setShowCandidateSuggestions] = useState<Record<string, boolean>>({});
+    const [candidateSuggestions, setCandidateSuggestions] = useState<Record<string, any[]>>({});
+    const [isLoadingCandidates, setIsLoadingCandidates] = useState<Record<string, boolean>>({});
     
     // 应用筛选和排序
     const filteredAndSortedResults = useMemo(() => {
@@ -5762,6 +6545,17 @@ const IdentificationComparisonTab = ({ results, setResults, dataSources, onNavig
                                             <XCircle size={18} />
                                         </button>
                                     </div>
+                                    {/* 生成业务对象按钮 */}
+                                    {onGenerateBusinessObject && (
+                                        <div className="mt-3 pt-3 border-t border-slate-200">
+                                            <button
+                                                onClick={() => onGenerateBusinessObject(selectedResult)}
+                                                className="w-full py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2"
+                                            >
+                                                <Box size={16} /> 生成业务对象
+                                            </button>
+                                        </div>
+                                    )}
                                     {selectedResult.objectSuggestion?.auditTrail && (
                                         <div className="mt-2 pt-2 border-t border-slate-200">
                                             <div className="text-xs text-slate-500">
@@ -5904,6 +6698,130 @@ const IdentificationComparisonTab = ({ results, setResults, dataSources, onNavig
                                         </div>
                                     </div>
                                 )}
+
+                                {/* 候选建议（辅助功能） */}
+                                <div className="mt-6 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2">
+                                            <Sparkles size={16} className="text-purple-500" />
+                                            <h4 className="text-sm font-bold text-slate-700">AI 候选建议</h4>
+                                            <span className="text-xs text-purple-600 bg-purple-100 px-2 py-0.5 rounded">辅助功能</span>
+                                        </div>
+                                        <button
+                                            onClick={async () => {
+                                                if (showCandidateSuggestions[selectedResult.id]) {
+                                                    setShowCandidateSuggestions({ ...showCandidateSuggestions, [selectedResult.id]: false });
+                                                } else {
+                                                    setIsLoadingCandidates({ ...isLoadingCandidates, [selectedResult.id]: true });
+                                                    // 模拟AI分析过程
+                                                    await new Promise(resolve => setTimeout(resolve, 1000));
+                                                    // 生成候选建议
+                                                    const suggestions = [
+                                                        {
+                                                            id: `CAND_${selectedResult.id}_1`,
+                                                            suggestedName: `${selectedResult.objectSuggestion.name}记录`,
+                                                            confidence: (selectedResult.objectSuggestion.confidence + 0.05),
+                                                            reason: `基于当前识别结果"${selectedResult.objectSuggestion.name}"的进一步优化建议`,
+                                                            alternativeNames: [
+                                                                `${selectedResult.objectSuggestion.name}明细`,
+                                                                `${selectedResult.objectSuggestion.name}信息`,
+                                                                `${selectedResult.objectSuggestion.name}数据`
+                                                            ]
+                                                        }
+                                                    ];
+                                                    setCandidateSuggestions({ ...candidateSuggestions, [selectedResult.id]: suggestions });
+                                                    setIsLoadingCandidates({ ...isLoadingCandidates, [selectedResult.id]: false });
+                                                    setShowCandidateSuggestions({ ...showCandidateSuggestions, [selectedResult.id]: true });
+                                                }
+                                            }}
+                                            className="text-xs px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 flex items-center gap-1"
+                                        >
+                                            {isLoadingCandidates[selectedResult.id] ? (
+                                                <>
+                                                    <RefreshCw size={12} className="animate-spin" /> 分析中...
+                                                </>
+                                            ) : showCandidateSuggestions[selectedResult.id] ? (
+                                                '收起建议'
+                                            ) : (
+                                                <>
+                                                    <Cpu size={12} /> 查看候选建议
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                    {showCandidateSuggestions[selectedResult.id] && candidateSuggestions[selectedResult.id] && (
+                                        <div className="space-y-3 mt-3">
+                                            {candidateSuggestions[selectedResult.id].map((candidate: any) => (
+                                                <div key={candidate.id} className="bg-white rounded-lg border border-purple-200 p-3">
+                                                    <div className="flex items-start justify-between mb-2">
+                                                        <div className="flex-1">
+                                                            <h5 className="text-sm font-bold text-slate-800 mb-1">{candidate.suggestedName}</h5>
+                                                            <p className="text-xs text-slate-600 mb-2">{candidate.reason}</p>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xs text-slate-500">置信度:</span>
+                                                                <div className="w-20 bg-slate-200 rounded-full h-1.5">
+                                                                    <div
+                                                                        className="bg-purple-500 h-1.5 rounded-full"
+                                                                        style={{ width: `${candidate.confidence * 100}%` }}
+                                                                    ></div>
+                                                                </div>
+                                                                <span className="text-xs text-purple-600 font-medium">
+                                                                    {Math.round(candidate.confidence * 100)}%
+                                                                </span>
+                                                            </div>
+                                                            {candidate.alternativeNames && candidate.alternativeNames.length > 0 && (
+                                                                <div className="mt-2">
+                                                                    <div className="text-xs text-slate-500 mb-1">备选名称:</div>
+                                                                    <div className="flex flex-wrap gap-1">
+                                                                        {candidate.alternativeNames.map((name: string, idx: number) => (
+                                                                            <span key={idx} className="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded">
+                                                                                {name}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex gap-2 mt-3 pt-3 border-t border-slate-200">
+                                                        <button
+                                                            onClick={() => {
+                                                                if (onGenerateBusinessObject) {
+                                                                    // 使用候选建议生成业务对象
+                                                                    const enhancedResult = {
+                                                                        ...selectedResult,
+                                                                        objectSuggestion: {
+                                                                            ...selectedResult.objectSuggestion,
+                                                                            name: candidate.suggestedName
+                                                                        }
+                                                                    };
+                                                                    onGenerateBusinessObject(enhancedResult);
+                                                                }
+                                                            }}
+                                                            className="flex-1 py-1.5 bg-purple-600 text-white text-xs font-medium rounded hover:bg-purple-700 flex items-center justify-center gap-1"
+                                                        >
+                                                            <Box size={12} /> 采用此建议生成
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                setCandidateSuggestions({
+                                                                    ...candidateSuggestions,
+                                                                    [selectedResult.id]: candidateSuggestions[selectedResult.id].filter((c: any) => c.id !== candidate.id)
+                                                                });
+                                                            }}
+                                                            className="px-3 py-1.5 border border-slate-300 text-slate-600 text-xs rounded hover:bg-slate-50"
+                                                        >
+                                                            忽略
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <p className="text-xs text-slate-500 mt-2">
+                                        💡 提示：候选建议是AI生成的辅助推荐，您可以采纳或忽略
+                                    </p>
+                                </div>
                             </div>
                         </>
                     ) : (
@@ -5918,7 +6836,7 @@ const IdentificationComparisonTab = ({ results, setResults, dataSources, onNavig
 };
 
 // 子组件2: 批量确认页
-const BatchConfirmationTab = ({ results, setResults, selectedItems, setSelectedItems, filter, setFilter }: any) => {
+const BatchConfirmationTab = ({ results, setResults, selectedItems, setSelectedItems, filter, setFilter, onGenerateBusinessObject }: any) => {
     const filteredResults = results.filter((r: any) => {
         if (filter.needsConfirm && !r.needsConfirmation) return false;
         if (filter.hasConflict && !r.hasConflict) return false;
@@ -6056,6 +6974,28 @@ const BatchConfirmationTab = ({ results, setResults, selectedItems, setSelectedI
                             >
                                 批量拒绝 ({selectedItems.size})
                             </button>
+                            {onGenerateBusinessObject && (
+                                <button
+                                    onClick={() => {
+                                        if (selectedItems.size === 0) {
+                                            alert('请先选择要生成业务对象的识别结果');
+                                            return;
+                                        }
+                                        if (selectedItems.size === 1) {
+                                            const result = results.find((r: any) => selectedItems.has(r.id));
+                                            if (result) onGenerateBusinessObject(result);
+                                        } else {
+                                            alert(`批量生成功能：将为 ${selectedItems.size} 个识别结果分别生成业务对象。\n提示：目前仅支持单个生成，请逐个选择生成。`);
+                                            const firstResult = results.find((r: any) => selectedItems.has(r.id));
+                                            if (firstResult) onGenerateBusinessObject(firstResult);
+                                        }
+                                    }}
+                                    disabled={selectedItems.size === 0}
+                                    className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                >
+                                    <Box size={16} /> 批量生成业务对象 ({selectedItems.size})
+                                </button>
+                            )}
                             <button className="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50">
                                 导出
                             </button>
@@ -6128,7 +7068,7 @@ const BatchConfirmationTab = ({ results, setResults, selectedItems, setSelectedI
 };
 
 // 子组件3: 冲突解释与校准页
-const ConflictExplanationTab = ({ results, setResults, selectedConflict, setSelectedConflict, onNavigateToComparison }: any) => {
+const ConflictExplanationTab = ({ results, setResults, selectedConflict, setSelectedConflict, onNavigateToComparison, onGenerateBusinessObject }: any) => {
     const [selectedDecision, setSelectedDecision] = useState<'rule' | 'ai' | 'manual' | null>(null);
     const [manualSemanticRole, setManualSemanticRole] = useState('');
     const [decisionNote, setDecisionNote] = useState('');
@@ -6737,6 +7677,22 @@ const ConflictExplanationTab = ({ results, setResults, selectedConflict, setSele
                                 >
                                     确认决策
                                 </button>
+                                
+                                {/* 生成业务对象按钮 - 冲突解决后显示 */}
+                                {onGenerateBusinessObject && decisionHistory[`${currentConflict.tableId}_${currentConflict.field}`] && (
+                                    <div className="pt-4 border-t border-slate-200">
+                                        <button
+                                            onClick={() => {
+                                                const result = results.find((r: any) => r.id === currentConflict.tableId);
+                                                if (result) onGenerateBusinessObject(result);
+                                            }}
+                                            className="w-full py-2.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 shadow-sm hover:shadow flex items-center justify-center gap-2"
+                                        >
+                                            <Box size={16} /> 生成业务对象
+                                        </button>
+                                        <p className="text-xs text-slate-500 text-center mt-2">冲突已解决，可以生成业务对象</p>
+                                    </div>
+                                )}
                                 
                                 {/* 已决策历史（如果有） */}
                                 {decisionHistory[`${currentConflict.tableId}_${currentConflict.field}`] && (
@@ -8762,6 +9718,8 @@ const SemanticLayerApp = () => {
                     dataSources={dataSources}
                     scanAssets={scanAssets}
                     setScanAssets={setScanAssets}
+                    businessObjects={businessObjects}
+                    setBusinessObjects={setBusinessObjects}
                 />;
             case 'bu_candidates': 
                 return <CandidateGenerationView 
