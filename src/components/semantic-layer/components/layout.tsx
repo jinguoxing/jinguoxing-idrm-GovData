@@ -41,7 +41,6 @@ export const Sidebar = ({ activeModule, setActiveModule, isCollapsed, setIsColla
             items: [
                 { id: 'mapping' as ModuleType, label: '映射工作台 (SG-01)', icon: GitMerge },
                 { id: 'governance' as ModuleType, label: '冲突检测 (SG-02)', icon: Shield },
-                { id: 'asset_center' as ModuleType, label: '资产中心', icon: Database },
                 { id: 'catalog' as ModuleType, label: '数据资产中心 (SG-04)', icon: BookIcon },
                 { id: 'lineage' as ModuleType, label: '全链路血缘 (SG-05)', icon: GitBranch },
             ]

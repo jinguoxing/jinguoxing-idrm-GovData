@@ -119,8 +119,6 @@ export const SemanticLayerApp: React.FC<SemanticLayerAppProps> = ({
                 return <PlaceholderView title="逻辑视图 (BU-03)" description="DataSemanticUnderstandingView - 位于 tt5.tsx:837" />;
             case 'bu_identification':
                 return <PlaceholderView title="识别结果确认" description="IdentificationResultView - 位于 tt5.tsx:5762" />;
-            case 'asset_center':
-                return <PlaceholderView title="资产中心" description="AssetCenterView - 位于 tt5.tsx" />;
             case 'catalog':
                 return <PlaceholderView title="数据资产中心 (SG-04)" description="DataCatalogView - 位于 tt5.tsx:3441" />;
             case 'lineage':

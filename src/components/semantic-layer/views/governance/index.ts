@@ -5,6 +5,7 @@
 
 export { MappingWorkbenchView } from './MappingWorkbenchView';
 export { ConflictDetectionView } from './ConflictDetectionView';
+export { DataCatalogView } from './DataCatalogView';
 export { TermManagementView } from './TermManagementView';
 export { TagManagementView } from './TagManagementView';
 
